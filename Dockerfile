@@ -43,6 +43,10 @@ RUN mkdir -p /root/.jupyter && \
 # Set working directory
 WORKDIR /workspace
 
+# Install the package in editable mode
+COPY . /workspace/
+RUN pip install -e .
+
 # Expose Jupyter notebook port
 EXPOSE 8888
 

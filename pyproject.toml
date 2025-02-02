@@ -1,0 +1,35 @@
+[build-system]
+requires = ["setuptools>=42", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "diffusion_dynamics"
+version = "0.1.0"
+description = "Robot dynamics modelling with 1D sequence diffusion"
+authors = [
+    { name = "Micah Reich", email = "mreich@andrew.cmu.edu" }
+]
+license = { text = "MIT" }
+readme = "README.md"
+requires-python = ">=3.7"
+
+dependencies = [
+    "numpy",
+    "torch",
+    "matplotlib"
+]
+
+[project.optional-dependencies]
+dev = ["pytest", "black", "flake8"]
+
+[project.scripts]
+my_tool = "diffusion_dynamics.main:main"
+
+[tool.setuptools]
+packages = ["diffusion_dynamics"] 
+
+[tool.setuptools.package-data]
+"diffusion_dynamics" = ["*.txt", "*.json"] 
+
+[tool.black]
+line-length = 88
