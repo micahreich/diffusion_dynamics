@@ -1,9 +1,9 @@
 #!/bin/bash
 
 # Container name
-CONTAINER_NAME="pytorch_dev"
+CONTAINER_NAME="diffusion_dynamics_container"
 
-DOCKER_IMAGE_NAME="pytorch-dev"
+DOCKER_IMAGE_NAME="diffusion_dynamics_image"
 
 # Directory of this script
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"

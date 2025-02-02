@@ -14,6 +14,7 @@ RUN apt-get update && apt-get install -y \
     tmux \
     net-tools \
     iputils-ping \
+    x11-apps \
     && rm -rf /var/lib/apt/lists/*
 
 # Install Python dependencies
@@ -28,11 +29,9 @@ RUN pip install --no-cache-dir \
     tqdm \
     ipywidgets \
     tensorboard \
-    python3-tk \
     && pip cache purge
 
-RUN pip install --no-cache-dir \
-    denoising_diffusion_pytorch \
+RUN pip install \
     diffusers
 
 # Set up Jupyter Notebook config
@@ -51,4 +50,4 @@ EXPOSE 8888
 CMD ["bash"]
 
 # To build the container after changes, run:
-# $ docker build -t pytorch-dev -f Dockerfile .
+# $ docker build --network=host -t diffusion_dynamics_image -f Dockerfile .
