@@ -25,11 +25,11 @@ class NumpyDataset1D(Dataset):
         data = (np_data - mean) / std
         
         # Perform sigmoid normalization to get values in [0, 1]
-        return np_sigmoid(data), mean, std
+        return data, mean, std
     
     @staticmethod
     def denormalize(data, mean, std):
-        return np_logit(data) * std + mean
+        return data * std + mean
     
     def __len__(self):
         return self.n_samples

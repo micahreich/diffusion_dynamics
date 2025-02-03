@@ -29,10 +29,14 @@ RUN pip install --no-cache-dir \
     tqdm \
     ipywidgets \
     tensorboard \
+    jax \
     && pip cache purge
 
 RUN pip install \
-    diffusers
+    diffusers \
+    smalldiffusion \
+    torch_ema
+
 
 # Set up Jupyter Notebook config
 RUN mkdir -p /root/.jupyter && \

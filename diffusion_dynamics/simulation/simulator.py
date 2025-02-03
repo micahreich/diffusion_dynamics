@@ -25,7 +25,7 @@ def simulate_dynamical_system(sys: DynamicalSystem, tf: float,
     X_history[0] = x0
     
     for i, t in enumerate(ts[:-1]):
-        u0 = u(X_history[i])
+        u0 = u(t, X_history[i])
         x_next = rk4_step(sys.continuous_dynamics, X_history[i], u0, dt)
         
         X_history[i+1] = x_next
@@ -39,7 +39,7 @@ if __name__ == "__main__":
     import matplotlib.pyplot as plt
     
     x0 = np.array([np.pi/2, 0])
-    u = lambda x : np.array([0])
+    u = lambda t, x : np.array([0])
     
     sys = Pendulum(PendulumParams(m=1, l=1, b=1.0))
 

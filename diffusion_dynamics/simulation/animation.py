@@ -10,7 +10,11 @@ def interp_x_u_history(ts, xs, us, ts_query):
     alphas = (ts_query - ts[left]) / (ts[right] - ts[left])
     
     x_query = xs[left] + alphas[:, np.newaxis] * (xs[right] - xs[left])
-    u_query = us[left] + alphas[:, np.newaxis] * (us[right] - us[left])
+    
+    us_left = np.maximum(0, np.minimum(len(us)-1, left))
+    us_right = np.maximum(0, np.minimum(len(us)-1, right))
+    
+    u_query = us[us_left] + alphas[:, np.newaxis] * (us[us_right] - us[us_left])
     
     return ts_query, x_query, u_query
 
