@@ -22,71 +22,12 @@ from typing import Optional, Callable
 from diffusion_dynamics.models.utils import NumpyDataset1D
 
 
-# class SinusoidalPosEmb(nn.Module):
-#     def __init__(self, dim):
-#         super().__init__()
-#         assert dim % 2 == 0, "Embedding dimension must be even."
-#         self.dim = dim
-
-#     def forward(self, x):
-#         device = x.device
-#         half_dim = self.dim // 2
-#         emb = math.log(10000) / (half_dim - 1)
-#         emb = torch.exp(torch.arange(half_dim, device=device) * -emb)
-#         emb = x[:, None] * emb[None, :]
-#         emb = torch.cat((emb.sin(), emb.cos()), dim=-1)
-#         return emb
-
-
 class UNet1D(nn.Module):
     def __init__(self,
                  in_channels=1,
                  out_channels=1,
                  base_channels=64,
                  dim_mults=[1, 2, 4]):
-        """
-        A 1D U-Net model for temporal sequence processing, using convolutional 
-        and residual blocks with optional time embeddings.
-
-        This architecture consists of:
-        - An **encoder** that progressively downsamples the input through 
-        convolutional layers and residual blocks.
-        - A **bottleneck** layer that processes the deepest features.
-        - A **decoder** that upsamples the latent representation back to the original size.
-        - A final convolutional layer that maps features to the desired output channels.
-
-        Args:
-            in_channels (int, optional): 
-                Number of input channels. Default is 1.
-            out_channels (int, optional): 
-                Number of output channels. Default is 1.
-            base_channels (int, optional): 
-                Number of channels in the first convolutional layer. Default is 64.
-            block_out_num_channels_multipliers (list[int], optional): 
-                Multipliers that define the number of output channels at each 
-                encoder/decoder stage relative to `base_channels`. The length of this 
-                list determines the depth of the network. Default is [1, 2, 4].
-
-        Attributes:
-            init_conv (nn.Conv1d): 
-                Initial convolutional layer before entering the encoder.
-            init_resblock (ResidualTemporalBlock1D): 
-                First residual block in the encoder.
-            encoder_convs (nn.ModuleList): 
-                Convolutional layers in the encoder for downsampling.
-            encoder_resblocks (nn.ModuleList): 
-                Residual blocks in the encoder for feature extraction.
-            bottleneck (ResidualTemporalBlock1D): 
-                Central bottleneck residual block.
-            decoder_ups (nn.ModuleList): 
-                Transposed convolutional layers in the decoder for upsampling.
-            decoder_resblocks (nn.ModuleList): 
-                Residual blocks in the decoder for feature refinement.
-            final_conv (nn.Conv1d): 
-                Final convolutional layer mapping to output channels.
-            activation (nn.ReLU): 
-                Activation function applied to the final output.
-        """
         super().__init__()
         
         dims = [in_channels, *map(lambda m: base_channels * m, dim_mults)]
@@ -129,49 +70,7 @@ class UNet1D(nn.Module):
             Conv1dBlock(base_channels, base_channels, kernel_size=5),
             nn.Conv1d(base_channels, out_channels, 1),
         )
-        
-        # # --- Encoder ---
-        # # Initial convolution and residual block (no downsampling yet)
-        # self.init_conv = nn.Conv1d(in_channels, base_channels, kernel_size=3, padding=1)
-        # # self.resblock1 = ResidualBlock1D(base_channels, base_channels, self.time_embed_dim)
-        # self.init_resblock = ResidualTemporalBlock1D(base_channels, base_channels, embed_dim=self.time_embed_dim, kernel_size=3)
-        
-        # self.encoder_convs = nn.ModuleList()
-        # self.encoder_resblocks = nn.ModuleList()
-        
-        # for i in range(1, len(block_out_num_channels_multipliers)):
-        #     layer_in_channels = base_channels * block_out_num_channels_multipliers[i-1]
-        #     layer_out_channels = base_channels * block_out_num_channels_multipliers[i]
-                        
-        #     self.encoder_convs.append(
-        #         nn.Conv1d(layer_in_channels, layer_out_channels, kernel_size=4, stride=2, padding=1)
-        #     )
-            
-        #     self.encoder_resblocks.append(
-        #         ResidualTemporalBlock1D(layer_out_channels, layer_out_channels, embed_dim=self.time_embed_dim, kernel_size=3)
-        #     )
-        
-        # bottleneck_channels = base_channels * block_out_num_channels_multipliers[-1]
-        # self.bottleneck = ResidualTemporalBlock1D(bottleneck_channels, bottleneck_channels, embed_dim=self.time_embed_dim, kernel_size=3)
-        
-        # self.decoder_ups = nn.ModuleList()
-        # self.decoder_resblocks = nn.ModuleList()
-        
-        # for i in range(len(block_out_num_channels_multipliers) - 1, 0, -1):
-        #     layer_in_channels = base_channels * block_out_num_channels_multipliers[i]
-        #     layer_out_channels = base_channels * block_out_num_channels_multipliers[i-1]
-                        
-        #     self.decoder_ups.append(
-        #         nn.ConvTranspose1d(layer_in_channels, layer_out_channels, kernel_size=4, stride=2, padding=1)
-        #     )
-            
-        #     self.decoder_resblocks.append(
-        #         ResidualTemporalBlock1D(layer_out_channels, layer_out_channels, embed_dim=self.time_embed_dim, kernel_size=3)
-        #     )
-        
-        # # Final convolution to bring features back to in_channels
-        # self.final_conv = nn.Conv1d(base_channels, out_channels, kernel_size=3, padding=1)
-        # self.activation = nn.ReLU()
+
 
     def forward(self, x, t):
         t_embedded = get_timestep_embedding(t, self.time_embed_dim)
@@ -198,41 +97,6 @@ class UNet1D(nn.Module):
         x = self.final_conv(x)
 
         return x
-    
-        # """
-        # x: Tensor of shape (B, N_channel, L) — our 1D sequence.
-        # t: Tensor of shape (B,) — diffusion timesteps.
-        # """
-        # # Create timestep embeddings (B, self.time_embed_dim, 1)
-        # t_emb = get_timestep_embedding(t, self.time_embed_dim)
-        # t_emb = self.time_mlp(t_emb)
-        
-        # h = self.init_conv(x)
-        # h = self.init_resblock(h, t_emb)
-        
-        # # down
-        # skip_connections = []
-        # for conv, resblock in zip(self.encoder_convs, self.encoder_resblocks):
-        #     skip_connections.append(h)
-            
-        #     h = conv(h)
-        #     h = resblock(h, t_emb)
-                    
-        # # bottleneck
-        # h = self.bottleneck(h, t_emb)
-                
-        # # up
-        # for up, resblock in zip(self.decoder_ups, self.decoder_resblocks):
-        #     h = up(h)
-        #     skip = skip_connections.pop()
-                        
-        #     h = h + skip
-        #     h = resblock(h, t_emb)
-        
-        # h = self.activation(h)
-        # out = self.final_conv(h)
-        
-        # return out
 
 
 class UNet1DModel:

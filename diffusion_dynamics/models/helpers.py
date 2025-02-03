@@ -9,6 +9,7 @@ from diffusers import DDPMScheduler  # use the DDPM noise scheduler from diffuse
 from tqdm import tqdm
 from typing import Optional, Callable
 
+
 class Residual(nn.Module):
     def __init__(self, fn):
         super().__init__()
