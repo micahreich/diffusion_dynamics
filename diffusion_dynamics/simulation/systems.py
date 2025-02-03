@@ -1,4 +1,6 @@
 import numpy as np
+import jax.numpy as jnp
+import jax
 from typing import Any, Tuple
 from scipy.linalg import block_diag
 from dataclasses import dataclass
@@ -25,18 +27,18 @@ class DynamicalSystem:
         nxx = self.nx//2
     
         q, q_dot = unpack_state(x, self.nx)
-        
+
         M = self.M(q)
         C = self.C(q, q_dot)
         G = self.G(q)
         B = self.B()
         
-        q_ddot = np.linalg.solve(
+        q_ddot = jnp.linalg.solve(
             M.reshape((nxx, nxx)),
             (B @ u - C @ q_dot + G).reshape((-1,))
         )
     
-        x_dot = np.concatenate((q_dot, q_ddot))
+        x_dot = jnp.concatenate((q_dot, q_ddot))
         return x_dot
 
 # Pendulum system
@@ -52,20 +54,20 @@ class Pendulum(DynamicalSystem):
         self.g = 9.81
         super().__init__("Pendulum", params, nx=2, nu=1)
         
-    def M(self, q) -> np.ndarray:
+    def M(self, q) -> jnp.ndarray:
         m, l = self.params.m, self.params.l
-        return np.array([m*l**2])
+        return jnp.array([m*l**2])
     
-    def C(self, q, q_dot) -> np.ndarray:        
+    def C(self, q, q_dot) -> jnp.ndarray:        
         b = self.params.b
-        return np.array([b])
+        return jnp.array([b])
     
-    def G(self, q) -> np.ndarray:
+    def G(self, q) -> jnp.ndarray:
         m, l, g = self.params.m, self.params.l, self.g
-        return -np.array([m*g*l*np.sin(q[0])])
+        return -jnp.array([m*g*l*jnp.sin(q[0])])
     
-    def B(self) -> np.ndarray:
-        return np.array([1])
+    def B(self) -> jnp.ndarray:
+        return jnp.array([1])
 
 class PendulumRenderElement(RenderElement):
     def __init__(self, env: RenderEnvironment) -> None:
