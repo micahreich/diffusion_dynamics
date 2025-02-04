@@ -44,6 +44,8 @@ if __name__ == '__main__':
         
         # Plot data
         ax_top.plot(generated[i, 0, :])
+
+        # ax_top.set_yticks()
         ax_top.set_xticks([])  # Hide x-ticks on top subplot
         
         ax_bottom.plot(generated[i, 1, :])
