@@ -28,7 +28,7 @@ class NumpyDataset1D(Dataset):
         return data, mean, std
     
     @staticmethod
-    def denormalize(data, mean, std):
+    def unnormalize(data, mean, std):
         return data * std + mean
     
     def __len__(self):

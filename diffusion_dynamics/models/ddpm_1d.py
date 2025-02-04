@@ -13,12 +13,15 @@ from diffusers.models.unets.unet_1d import UNet1DModel
 from diffusers.models.embeddings import get_timestep_embedding
 from diffusers.models.downsampling import Downsample1D
 from diffusers.models.upsampling import Upsample1D
+from diffusers.models.attention_processor import Attention
+from diffusers.models.normalization import LayerNorm
 from datetime import datetime
 import pytz
 import os
 import pickle
+import einops
 from typing import Optional, Callable
-
+from diffusion_dynamics.models.helpers import Residual, PreNorm
 from diffusion_dynamics.models.utils import NumpyDataset1D
 
 
@@ -52,9 +55,10 @@ class UNet1D(nn.Module):
                 ResidualTemporalBlock1D(dim_out, dim_out, embed_dim=self.time_embed_dim, kernel_size=5),
                 Downsample1D(dim_out, use_conv=True) if not is_last else nn.Identity()
             ]))
-        
+
         mid_dim = dims[-1]
         self.mid_block1 = ResidualTemporalBlock1D(mid_dim, mid_dim, embed_dim=self.time_embed_dim)
+        self.mid_attn = Residual(PreNorm(mid_dim, Attention(query_dim=mid_dim, heads=4, dim_head=32, scale_qk=True)))
         self.mid_block2 = ResidualTemporalBlock1D(mid_dim, mid_dim, embed_dim=self.time_embed_dim)
                 
         for ind, (dim_in, dim_out) in enumerate(reversed(in_out[1:])):
@@ -85,6 +89,11 @@ class UNet1D(nn.Module):
             x = downsample(x)
 
         x = self.mid_block1(x, t)
+        
+        x = einops.rearrange(x, 'b c l -> b l c')
+        x = self.mid_attn(x)
+        x = einops.rearrange(x, 'b l c -> b c l')
+        
         x = self.mid_block2(x, t)
 
         for resnet, resnet2, upsample in self.ups:
@@ -136,7 +145,6 @@ class UNet1DModel:
             "data_mean": dataset.data_mean,
             "data_std": dataset.data_std
         }
-        
     
         dataloader = DataLoader(dataset, batch_size=batch_size, shuffle=True)
 
@@ -172,9 +180,10 @@ class UNet1DModel:
         except KeyboardInterrupt:
             print("\nTraining interrupted. Do you want to save the model? (y/n): ", end="")
             response = input().strip().lower()
-            if response == 'y':
-                cls._save_model(save_model_params, ddpm_scheduler_params, dataset_params)
-            print("Exiting training.")
+            if response == 'n':
+                return
+        
+        cls._save_model(save_model_params, ddpm_scheduler_params, dataset_params)
     
     @classmethod
     def _save_model(cls, save_model_params, ddpm_scheduler_params, dataset_params):
@@ -186,7 +195,8 @@ class UNet1DModel:
             time_str = datetime.now(nyc_tz).strftime("%Y-%m-%d__%H-%M-%S")
             save_model_params["save_model_name"] = f"unet1d_{time_str}"
         
-        save_fpath_full = os.path.join(save_model_params["save_fpath"], save_model_params["save_model_name"])        
+        save_fpath_full = os.path.join(save_model_params["save_fpath"], save_model_params["save_model_name"])
+        print("Saving model to", save_fpath_full)        
         os.makedirs(save_fpath_full, exist_ok=True)
 
         torch.save(cls.model.state_dict(), os.path.join(save_fpath_full, "model.pt"))
@@ -234,83 +244,4 @@ class UNet1DModel:
             
             dataset_params = combined_dict["dataset_params"]
             return dataset_params
-
-
-if __name__ == '__main__':
-    # Test DDPM training, saving, and loading
-    
-    class ExampleModel(UNet1DModel):
-        model = UNet1D(
-            in_channels=2,
-            out_channels=2,
-            base_channels=64,
-            dim_mults=[1, 2, 4],
-        )
-        scheduler = DDPMScheduler(num_train_timesteps=1000)
-        n_channels = 2
-    
-    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    
-    saved_model_params = {
-        "save_fpath": "/workspace/diffusion_dynamics/models/saved_models",
-        "save_model_name": "unet1d_test1"
-    }
-   
-    # Generate some sinusoidal/step data
-    n_samples = 10_000
-    seq_length = 128
-    n_channels = 2
-    
-    x = np.linspace(0, 2 * math.pi, seq_length)
-    data = np.empty(shape=(n_samples, n_channels, seq_length))
-    
-    for i in range(n_samples):
-        freq = np.random.uniform(0.5, 3.5)
-        phase = np.random.uniform(0, 2 * math.pi)
-        amplitude = np.random.uniform(0.5, 10)
-        
-        sinusoidal_component = amplitude * np.sin(freq * x + phase)
-        
-        step_idx = np.random.randint(0, seq_length)
-        step_component = np.where(np.arange(seq_length) < step_idx, 0.0, 1.0)
-        
-        data[i, 0, :] = sinusoidal_component
-        data[i, 1, :] = step_component
-
-    # Train the model
-    dataset = NumpyDataset1D(np_data=data, normalize_data=True)
-    ExampleModel.train(dataset,
-                       n_epochs=100,
-                       batch_size=128,
-                       learning_rate=1e-4,
-                       save_model_params=saved_model_params)
-    
-    # Load the trained model
-    trained_dataset_params = ExampleModel.load_trained_model(os.path.join(saved_model_params["save_fpath"], saved_model_params["save_model_name"]))
-    
-    # Generate some sequences via inference
-    n_inference_samples = 6
-    
-    generated = ExampleModel.sample(n_inference_samples, 128)
-    generated = generated.cpu().numpy()
-    generated = NumpyDataset1D.denormalize(generated, mean=trained_dataset_params["data_mean"], std=trained_dataset_params["data_std"])
-        
-    fig, axes = plt.subplots(1, n_inference_samples, figsize=(4 * n_inference_samples, 4), sharey=True)
-
-    for i in range(n_inference_samples):
-        ax_top = axes[i].inset_axes([0, 0.55, 1, 0.4])  # Top subplot
-        ax_bottom = axes[i].inset_axes([0, 0.1, 1, 0.4])  # Bottom subplot
-        
-        # Plot data
-        ax_top.plot(generated[i, 0, :])
-        ax_top.set_xticks([])  # Hide x-ticks on top subplot
-        
-        ax_bottom.plot(generated[i, 1, :])
-        
-        # Hide outer subplot borders
-        axes[i].axis("off")
-        axes[i].set_title(f"Sample {i + 1}")
-
-    plt.tight_layout()
-    plt.show()
 

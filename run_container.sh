@@ -21,6 +21,7 @@ docker run --gpus all -it --rm --shm-size=8g \
     --name "$CONTAINER_NAME" \
     --network host \
     --ipc=host \
+    --privileged \
     -e DISPLAY=$DISPLAY \
     -v /tmp/.X11-unix:/tmp/.X11-unix \
     -v "$SRC_DIR:/workspace" \

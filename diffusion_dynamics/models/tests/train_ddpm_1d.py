@@ -1,0 +1,53 @@
+import numpy as np
+from diffusion_dynamics.models.ddpm_1d import UNet1DModel, UNet1D
+from diffusers.schedulers import DDPMScheduler
+from diffusion_dynamics.models.utils import NumpyDataset1D
+import torch
+
+if __name__ == '__main__':
+    # Test DDPM training, saving, and loading    
+    class ExampleModel(UNet1DModel):
+        n_channels = 2
+        model = UNet1D(
+            in_channels=n_channels,
+            out_channels=n_channels,
+            base_channels=64,
+            dim_mults=[1, 2, 4],
+        )
+        scheduler = DDPMScheduler(num_train_timesteps=1000)
+    
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    
+    saved_model_params = {
+        "save_fpath": "/workspace/diffusion_dynamics/models/tests",
+        "save_model_name": "unet1d_test_sinusoidal_step"
+    }
+   
+    # Generate some sinusoidal/step data
+    n_samples = 5_000
+    seq_length = 128
+    n_channels = 2
+    
+    x = np.linspace(0, 2 * np.pi, seq_length)
+    data = np.empty(shape=(n_samples, n_channels, seq_length))
+    
+    for i in range(n_samples):
+        freq = np.random.uniform(0.5, 5.0)
+        phase = np.random.uniform(0, 2 * np.pi)
+        amplitude = 7.0
+        
+        sinusoidal_component = amplitude * np.sin(freq * x + phase)
+        
+        step_idx = np.random.randint(0, seq_length)
+        step_component = np.where(np.arange(seq_length) < step_idx, 0.0, 1.0)
+        
+        data[i, 0, :] = sinusoidal_component
+        data[i, 1, :] = step_component
+
+    # Train the model
+    dataset = NumpyDataset1D(np_data=data, normalize_data=True)
+    ExampleModel.train(dataset,
+                       n_epochs=150,
+                       batch_size=128,
+                       learning_rate=1e-4,
+                       save_model_params=saved_model_params)

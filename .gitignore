@@ -176,4 +176,5 @@ cython_debug/
 # Model checkpoints
 **/*.pt
 **/*.npy
+**/*.pkl
 diffusion_dynamics/models/saved_models/
