@@ -10,6 +10,7 @@ class NumpyDataset1D(Dataset):
         assert np_data.ndim == 3, "Data must be 3D with shape (n_samples, n_channels, seq_len)"
         
         self.np_data = np_data
+        self.data_mean, self.data_std = None, None
         
         self.n_samples, self.n_channels, self.seq_len = np_data.shape
         self.normalize_data = normalize_data

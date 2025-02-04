@@ -4,18 +4,18 @@ from diffusers.schedulers import DDPMScheduler
 from diffusion_dynamics.models.utils import NumpyDataset1D
 import torch
 
+class ExampleModel(UNet1DModel):
+    n_channels = 2
+    model = UNet1D(
+        in_channels=n_channels,
+        out_channels=n_channels,
+        base_channels=64,
+        dim_mults=[1, 2, 4],
+    )
+    scheduler = DDPMScheduler(num_train_timesteps=1000)
+    
 if __name__ == '__main__':
     # Test DDPM training, saving, and loading    
-    class ExampleModel(UNet1DModel):
-        n_channels = 2
-        model = UNet1D(
-            in_channels=n_channels,
-            out_channels=n_channels,
-            base_channels=64,
-            dim_mults=[1, 2, 4],
-        )
-        scheduler = DDPMScheduler(num_train_timesteps=1000)
-    
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     
     saved_model_params = {

@@ -15,19 +15,19 @@ import os
 
 
 if __name__ == "__main__":
-    N_training_trajectories = 10_000
+    N_training_trajectories = 12_000
     seq_len = 128
     dt = 0.05 # s
     tf = dt * (seq_len - 1) # s
     
     system = Pendulum(
-        PendulumParams(m=1, l=1, b=0.25)
+        PendulumParams(m=1, l=1, b=0.5)
     )
     
     # df_dx = jax.jacfwd(system.continuous_dynamics, argnums=0)
     # df_du = jax.jacfwd(system.continuous_dynamics, argnums=1)
-    x0 = jnp.array([jnp.pi, 0.0])
-    u0 = jnp.array([0.0])
+    # x0 = jnp.array([jnp.pi, 0.0])
+    # u0 = jnp.array([0.0])
     
     # A = df_dx(x0, u0)
     # B = df_du(x0, u0)
@@ -39,11 +39,14 @@ if __name__ == "__main__":
     training_data = np.empty(shape=(N_training_trajectories, system.nx + system.nu, seq_len))
 
     for i in tqdm(range(N_training_trajectories)):
+        theta0 = np.random.normal(loc=np.pi, scale=0.2)
+        omega0 = np.random.normal(loc=0.0, scale=1.0)
+        
         ts, xs, us = simulate_dynamical_system(
             sys=system,
             tf=tf,
-            x0=x0 + np.random.multivariate_normal(mean=[0., 0.], cov=np.diag([0.4, 0.2])**2),
-            u=lambda t, x : np.array([np.random.normal(loc=1.0, scale=1.0)]),
+            x0=np.array([theta0, omega0]),
+            u=lambda t, x: np.zeros(system.nu),
             dt=dt
         )
         
@@ -74,5 +77,5 @@ if __name__ == "__main__":
     time_str = datetime.now(nyc_tz).strftime("%Y-%m-%d__%H-%M-%S")
     save_fpath = "/workspace/diffusion_dynamics/experiments/pendulum1/data"
     os.makedirs(save_fpath, exist_ok=True)
-    save_fpath_full = os.path.join(save_fpath, f"pendulum1_N={N_training_trajectories}_{time_str}.npy")        
+    save_fpath_full = os.path.join(save_fpath, f"pendulum1_nocontrols2_N={N_training_trajectories}_{time_str}.npy")        
     np.save(save_fpath_full, training_data)

@@ -23,6 +23,7 @@ import einops
 from typing import Optional, Callable
 from diffusion_dynamics.models.helpers import Residual, PreNorm
 from diffusion_dynamics.models.utils import NumpyDataset1D
+from einops.layers.torch import Rearrange
 
 
 class UNet1D(nn.Module):
@@ -60,21 +61,23 @@ class UNet1D(nn.Module):
         self.mid_block1 = ResidualTemporalBlock1D(mid_dim, mid_dim, embed_dim=self.time_embed_dim)
         self.mid_attn = Residual(PreNorm(mid_dim, Attention(query_dim=mid_dim, heads=4, dim_head=32, scale_qk=True)))
         self.mid_block2 = ResidualTemporalBlock1D(mid_dim, mid_dim, embed_dim=self.time_embed_dim)
-                
+
         for ind, (dim_in, dim_out) in enumerate(reversed(in_out[1:])):
             is_last = ind >= (num_resolutions - 1)
 
             self.ups.append(nn.ModuleList([
-                ResidualTemporalBlock1D(dim_out * 2, dim_in, embed_dim=self.time_embed_dim),
-                ResidualTemporalBlock1D(dim_in, dim_in, embed_dim=self.time_embed_dim),
-                Upsample1D(dim_in) if not is_last else nn.Identity()
+                ResidualTemporalBlock1D(dim_out * 2, dim_in, embed_dim=self.time_embed_dim, kernel_size=5),
+                ResidualTemporalBlock1D(dim_in, dim_in, embed_dim=self.time_embed_dim, kernel_size=5),
+                Upsample1D(dim_in, use_conv_transpose=True) if not is_last else nn.Identity()
             ]))
 
         self.final_conv = nn.Sequential(
-            Conv1dBlock(base_channels, base_channels, kernel_size=5),
+            nn.Conv1d(base_channels, base_channels, 5, padding=5//2),
+            Rearrange('batch channels horizon -> batch channels 1 horizon'),
+            nn.GroupNorm(8, base_channels),
+            Rearrange('batch channels 1 horizon -> batch channels horizon'),
             nn.Conv1d(base_channels, out_channels, 1),
         )
-
 
     def forward(self, x, t):
         t_embedded = get_timestep_embedding(t, self.time_embed_dim)
