@@ -23,12 +23,14 @@ class NumpyDataset1D(Dataset):
         # Normalize data to have zero mean and unit variance
         mean, std = np.mean(np_data, axis=(0, -1), keepdims=True), np.std(np_data, axis=(0, -1), keepdims=True)
         data = (np_data - mean) / std
+        data = np.tanh(data)
         
         # Perform sigmoid normalization to get values in [0, 1]
         return data, mean, std
     
     @staticmethod
     def unnormalize(data, mean, std):
+        data = np.arctanh(data)
         return data * std + mean
     
     def __len__(self):
