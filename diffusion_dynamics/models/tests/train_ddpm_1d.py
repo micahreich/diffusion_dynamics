@@ -9,10 +9,12 @@ class ExampleModel(UNet1DModel):
     model = UNet1D(
         in_channels=n_channels,
         out_channels=n_channels,
-        base_channels=64,
+        base_channels=32,
         dim_mults=[1, 2, 4],
     )
-    scheduler = DDPMScheduler(num_train_timesteps=1000)
+    scheduler = DDPMScheduler(num_train_timesteps=100,
+                              clip_sample=False,
+                              variance_type="fixed_small_log")
     
 if __name__ == '__main__':
     # Test DDPM training, saving, and loading    
@@ -45,9 +47,9 @@ if __name__ == '__main__':
         data[i, 1, :] = step_component
 
     # Train the model
-    dataset = NumpyDataset1D(np_data=data, normalize_data=True)
+    dataset = NumpyDataset1D(np_data=data, normalize_data=False)
     ExampleModel.train(dataset,
-                       n_epochs=150,
-                       batch_size=128,
-                       learning_rate=1e-4,
+                       n_epochs=100,
+                       batch_size=32,
+                       learning_rate=4e-5,
                        save_model_params=saved_model_params)
