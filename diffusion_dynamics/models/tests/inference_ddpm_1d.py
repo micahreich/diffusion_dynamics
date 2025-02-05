@@ -47,7 +47,7 @@ if __name__ == '__main__':
             sample = ExampleModel.scheduler.step(noise_pred, t, sample)["prev_sample"]
             
             # sample[:, 0, -1] = 0.0
-            sample[:, 0, 0] = 0.0
+            # sample[:, 0, 0] = 0.0
     
     sample = sample.cpu().numpy()
     # sample = NumpyDataset1D.unnormalize(sample, mean=mu_np, std=sigma_np)
