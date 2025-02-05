@@ -12,7 +12,7 @@ class ExampleModel(UNet1DModel):
         base_channels=32,
         dim_mults=[1, 2, 4],
     )
-    scheduler = DDPMScheduler(num_train_timesteps=100,
+    scheduler = DDPMScheduler(num_train_timesteps=1000,
                               clip_sample=False,
                               variance_type="fixed_small_log")
     
@@ -49,7 +49,7 @@ if __name__ == '__main__':
     # Train the model
     dataset = NumpyDataset1D(np_data=data, normalize_data=False)
     ExampleModel.train(dataset,
-                       n_epochs=100,
-                       batch_size=32,
-                       learning_rate=4e-5,
+                       n_epochs=250,
+                       batch_size=128,
+                       learning_rate=2e-4,
                        save_model_params=saved_model_params)
