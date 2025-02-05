@@ -162,22 +162,21 @@ class UNet1DModel:
                 pbar = tqdm(dataloader, desc=f"Epoch {epoch}", unit="batch")
                 
                 for step, batch in enumerate(pbar):
-                    batch = batch.to(device)  # shape (B, 1, seq_length)
-                    # Sample a random timestep for each example in the batch.
+                    batch = batch.to(device)  # shape (batch_size, n_channels, seq_length)
+
+                    # Randomly sample timestep, add noise to batch
                     t = torch.randint(0, cls.scheduler.config.num_train_timesteps, (batch.shape[0],), device=device).long()
                     noise = torch.randn_like(batch)
-                    # Add noise to the clean batch at the given timesteps.
                     noisy_batch = cls.scheduler.add_noise(batch, noise, t)
-                    # Predict the noise that was added.
-                    noise_pred = cls.model(noisy_batch, t)
-                                
+                    
+                    # Predict added noise and perform backward pass
+                    noise_pred = cls.model(noisy_batch, t)            
                     loss = F.mse_loss(noise_pred, noise)
 
                     optimizer.zero_grad()
                     loss.backward()
                     optimizer.step()
 
-                    # Update the tqdm progress bar with the current loss.
                     pbar.set_postfix(loss=loss.item())
         except KeyboardInterrupt:
             print("\nTraining interrupted. Do you want to save the model? (y/n): ", end="")
