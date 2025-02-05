@@ -5,13 +5,6 @@ from dataclasses import dataclass
 from diffusion_dynamics.simulation.systems import DynamicalSystem
 import torch
 
-# def rk4_step(f: Callable, x: np.ndarray, u: np.ndarray, dt: float) -> np.ndarray:    
-#     k1 = f(x, u)
-#     k2 = f(x + 0.5*dt*k1, u)
-#     k3 = f(x + 0.5*dt*k2, u)
-#     k4 = f(x + dt*k3, u)
-    
-#     return x + dt/6*(k1 + 2*k2 + 2*k3 + k4)
 
 def rk4_step(f: Callable, x: torch.Tensor, u: torch.Tensor, dt: float) -> torch.Tensor:
     k1 = f(x, u)
@@ -21,26 +14,6 @@ def rk4_step(f: Callable, x: torch.Tensor, u: torch.Tensor, dt: float) -> torch.
     
     return x + dt/6*(k1 + 2*k2 + 2*k3 + k4)
 
-# def simulate_dynamical_system(sys: DynamicalSystem, tf: float,
-#                               x0: np.ndarray, u: Callable,
-#                               dt: float=1e-2) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
-#     ts = np.arange(0, tf, dt)
-#     if not np.allclose(ts[-1], tf):
-#         ts = np.append(ts, tf)
-    
-#     X_history = np.empty((len(ts), sys.nx))
-#     U_history = np.empty((len(ts) - 1, sys.nu))
-    
-#     X_history[0] = x0
-    
-#     for i, t in enumerate(ts[:-1]):
-#         u0 = u(t, X_history[i])
-#         x_next = rk4_step(sys.continuous_dynamics, X_history[i], u0, dt)
-        
-#         X_history[i+1] = x_next
-#         U_history[i] = u0
-    
-#     return ts, X_history, U_history
 
 def simulate_dynamical_system(sys: DynamicalSystem, tf: float,
                               x0: torch.Tensor, u: Callable,
