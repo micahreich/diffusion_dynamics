@@ -6,17 +6,21 @@ import torch
 from torch.distributions import Normal, Uniform
 
 class ExampleModel(UNet1DModel):
-    n_channels = 2
-    model = UNet1D(
-        in_channels=n_channels,
-        out_channels=n_channels,
-        base_channels=32,
-        dim_mults=[1, 2, 4],
-    )
-    scheduler = DDPMScheduler(num_train_timesteps=1000,
-                              clip_sample=False,
-                              variance_type="fixed_small_log")
-    
+    def __init__(self):
+        n_channels = 2
+        
+        unet = UNet1D(
+            in_channels=n_channels,
+            out_channels=n_channels,
+            base_channels=32,
+            dim_mults=[1, 2, 4],
+        )
+        scheduler = DDPMScheduler(num_train_timesteps=1000,
+                                  clip_sample=False,
+                                  variance_type="fixed_small_log")
+        
+        super().__init__(unet, scheduler, n_channels)
+
 if __name__ == '__main__':
     # Test DDPM training, saving, and loading    
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -45,10 +49,10 @@ if __name__ == '__main__':
     data = torch.stack([sin_data, step_data], dim=1)
 
     # Train the model
-    dataset = TensorDataset1D(data=data)
-    ExampleModel.train(dataset,
+    dataset = TensorDataset1D(data=data, normalize=False)
+    ExampleModel().train(dataset,
                        n_epochs=250,
                        batch_size=128,
                        learning_rate=2e-4,
                        save_model_params=saved_model_params,
-                       initial_conditioning_channel_idx=[0, 1])
+                       initial_conditioning_channel_idx=list(range(n_channels)))

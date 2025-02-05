@@ -22,7 +22,7 @@ import pickle
 import einops
 from typing import Optional, Callable
 from diffusion_dynamics.models.helpers import Residual, PreNorm, LinearAttention
-from diffusion_dynamics.models.utils import NumpyDataset1D
+from diffusion_dynamics.models.utils import TensorDataset1D, TensorDataset1DStats
 from einops.layers.torch import Rearrange
 
 
@@ -111,52 +111,38 @@ class UNet1D(nn.Module):
 
 
 class UNet1DModel:
-    model = None
-    scheduler = None
-    n_channels = None
-    loaded_model_name = None
-
-    @classmethod
-    def train(cls,
-              dataset: Dataset,
+    def __init__(self, unet=None, scheduler=None, n_channels=None):
+        self.unet = unet
+        self.scheduler = scheduler
+        self.n_channels = n_channels
+        
+        self.train_data_stats = None
+    
+    def train(self,
+              dataset: TensorDataset1D,
               n_epochs=100,
               batch_size=64,
               learning_rate=1e-4,
               save_model_params=None,
               initial_conditioning_channel_idx=[]):
-        assert cls.model is not None, "model must be instantiated before training"
-        assert cls.scheduler is not None, "noise scheduler must be instantiated before training"
-        assert cls.n_channels is not None, "number of channels must be set before training"
+        assert self.unet is not None, "model must be instantiated before training"
+        assert self.scheduler is not None, "noise scheduler must be instantiated before training"
+        assert self.n_channels is not None, "number of channels must be set before training"
         
         if save_model_params is not None:
             assert "save_fpath" in save_model_params, "model save filepath must be provided"
         
-        trainable_params = sum(p.numel() for p in cls.model.parameters() if p.requires_grad)
-        print(f"Training {cls.model.__class__.__name__} with {trainable_params} trainable parameters")
+        trainable_params = sum(p.numel() for p in self.unet.parameters() if p.requires_grad)
+        print(f"Training {self.unet.__class__.__name__} with {trainable_params} trainable parameters")
         
         device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-        
-        ddpm_scheduler_params = {
-            "num_train_timesteps": cls.scheduler.config.num_train_timesteps
-        }
-        
-        dataset_params = {
-            "n_samples": len(dataset),
-            # "seq_length": dataset.seq_len,
-            "n_channels": dataset.n_channels,
-            "normalize_data": dataset.normalize_data,
-            "data_mean": dataset.data_mean,
-            "data_std": dataset.data_std
-        }
-    
         dataloader = DataLoader(dataset, batch_size=batch_size, shuffle=True)
 
         # Instantiate our 1D UNet diffusion model
-        cls.model.to(device)
-        
-        optimizer = torch.optim.Adam(cls.model.parameters(), lr=learning_rate)
+        self.unet.to(device)
+        self.unet.train()
 
-        cls.model.train()
+        optimizer = torch.optim.Adam(self.unet.parameters(), lr=learning_rate)
         
         try:
             for epoch in range(n_epochs):
@@ -166,14 +152,14 @@ class UNet1DModel:
                     batch = batch.to(device)  # shape (batch_size, n_channels, seq_length)
 
                     # Randomly sample timestep, add noise to batch
-                    t = torch.randint(0, cls.scheduler.config.num_train_timesteps, (batch.shape[0],), device=device).long()
+                    t = torch.randint(0, self.scheduler.config.num_train_timesteps, (batch.shape[0],), device=device).long()
                     noise = torch.randn_like(batch)
-                    noisy_batch = cls.scheduler.add_noise(batch, noise, t)
+                    noisy_batch = self.scheduler.add_noise(batch, noise, t)
                     
                     noisy_batch[:, initial_conditioning_channel_idx, 0] = batch[:, initial_conditioning_channel_idx, 0]
                     
                     # Predict added noise and perform backward pass
-                    noise_pred = cls.model(noisy_batch, t)            
+                    noise_pred = self.unet(noisy_batch, t)            
                     loss = F.mse_loss(noise_pred, noise)
 
                     optimizer.zero_grad()
@@ -187,10 +173,9 @@ class UNet1DModel:
             if response == 'n':
                 return
         
-        cls._save_model(save_model_params, ddpm_scheduler_params, dataset_params)
+        self._save_model(save_model_params, dataset)
     
-    @classmethod
-    def _save_model(cls, save_model_params, ddpm_scheduler_params, dataset_params):
+    def _save_model(self, save_model_params, train_dataset: TensorDataset1D):
         assert save_model_params is not None, "save_model_params must be provided"
         
         # Save the trained model weights
@@ -203,33 +188,26 @@ class UNet1DModel:
         print("Saving model to", save_fpath_full)        
         os.makedirs(save_fpath_full, exist_ok=True)
 
-        torch.save(cls.model.state_dict(), os.path.join(save_fpath_full, "model.pt"))
-        
-        with open(os.path.join(save_fpath_full, "params.pkl"), "wb") as f:
-            combined_dict = {
-                "ddpm_scheduler_params": ddpm_scheduler_params,
-                "dataset_params": dataset_params
-            }
-            pickle.dump(combined_dict, f)
-                
-    @classmethod
-    def sample(cls, n_samples, seq_length, g: Optional[Callable] = None) -> torch.Tensor:
+        torch.save(self.unet.state_dict(), os.path.join(save_fpath_full, "model.pt"))
+        train_dataset.stats.save(os.path.join(save_fpath_full, "dataset_stats.pt"))
+    
+    def sample(self, n_samples, seq_length, g: Optional[Callable] = None) -> torch.Tensor:
         device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         
-        cls.model.to(device)
-        cls.model.eval()
+        self.unet.to(device)
+        self.unet.eval()
     
         with torch.no_grad():
             # Start from random Gaussian noise
-            sample = torch.randn((n_samples, cls.n_channels, seq_length), device=device)
+            sample = torch.randn((n_samples, self.n_channels, seq_length), device=device)
             # scheduler.timesteps is an iterable of timesteps in descending order
-            for t in cls.scheduler.timesteps:
+            for t in self.scheduler.timesteps:
                 # For each diffusion step, create a batch of the current timestep
                 t_batch = torch.full((n_samples,), t, device=device, dtype=torch.long)
                 # Predict the noise residual
-                noise_pred = cls.model(sample, t_batch)
+                noise_pred = self.unet(sample, t_batch)
                 # Compute the previous sample (one denoising step)
-                sample = cls.scheduler.step(noise_pred, t, sample)["prev_sample"]
+                sample = self.scheduler.step(noise_pred, t, sample)["prev_sample"]
                 
                 if g is not None:
                     sample = g(sample, t)
@@ -240,12 +218,12 @@ class UNet1DModel:
     def load_trained_model(cls, saved_model_fpath):
         device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         state_dict = torch.load(os.path.join(saved_model_fpath, "model.pt"), map_location=device)
-        cls.model.load_state_dict(state_dict)
-        cls.loaded_model_name = os.path.basename(saved_model_fpath)
         
-        with open(os.path.join(saved_model_fpath, "params.pkl"), "rb") as f:
-            combined_dict = pickle.load(f)
-            
-            dataset_params = combined_dict["dataset_params"]
-            return dataset_params
+        m = cls()
+        assert m.unet is not None, "model must be instantiated before loading a trained model"
+        
+        m.unet.load_state_dict(state_dict)
+        m.train_data_stats = TensorDataset1DStats.load(os.path.join(saved_model_fpath, "dataset_stats.pt"))
+        
+        return m        
 

@@ -18,44 +18,32 @@ if __name__ == '__main__':
     }
     
     # Load the trained model
-    trained_dataset_params = ExampleModel.load_trained_model(os.path.join(saved_model_params["save_fpath"], saved_model_params["save_model_name"]))
-    
-    mu_np = trained_dataset_params["data_mean"]
-    sigma_np = trained_dataset_params["data_std"]
-    
-    if mu_np is not None and sigma_np is not None:
-        mu_pt = torch.squeeze(torch.tensor(mu_np, device=device))
-        sigma_pt = torch.squeeze(torch.tensor(sigma_np, device=device))
+    example_model = ExampleModel().load_trained_model(os.path.join(saved_model_params["save_fpath"], saved_model_params["save_model_name"]))
     
     # Generate some sequences via inference
     n_samples = 5
     seq_length = 128
         
-    ExampleModel.model.to(device)
-    ExampleModel.model.eval()
+    example_model.unet.to(device)
+    example_model.unet.eval()
 
     with torch.no_grad():
         # Start from random Gaussian noise
-        sample = torch.randn((n_samples, ExampleModel.n_channels, seq_length), device=device)
+        sample = torch.randn((n_samples, example_model.n_channels, seq_length), device=device)
         # scheduler.timesteps is an iterable of timesteps in descending order
-        for t in ExampleModel.scheduler.timesteps:
-            sample[:, 0, 0] = 5.0
+        for t in example_model.scheduler.timesteps:
+            sample[:, 0, 0] = -1.0
             sample[:, 1, 0] = 0.0
             
             # For each diffusion step, create a batch of the current timestep
             t_batch = torch.full((n_samples,), t, device=device, dtype=torch.long)
             # Predict the noise residual
-            noise_pred = ExampleModel.model(sample, t_batch)
+            noise_pred = example_model.unet(sample, t_batch)
             # Compute the previous sample (one denoising step)
-            sample = ExampleModel.scheduler.step(noise_pred, t, sample)["prev_sample"]
+            sample = example_model.scheduler.step(noise_pred, t, sample)["prev_sample"]
     
     sample = sample.cpu().numpy()
-    # sample = NumpyDataset1D.unnormalize(sample, mean=mu_np, std=sigma_np)
     
-    # generated = ExampleModel.sample(n_inference_samples, 128)
-    # generated = generated.cpu().numpy()
-    # generated = NumpyDataset1D.unnormalize(generated, mean=trained_dataset_params["data_mean"], std=trained_dataset_params["data_std"])
-        
     fig, axes = plt.subplots(1, n_samples, figsize=(4 * n_samples, 4), sharey=True)
 
     for i in range(n_samples):
@@ -64,8 +52,6 @@ if __name__ == '__main__':
         
         # Plot data
         ax_top.plot(sample[i, 0, :])
-
-        # ax_top.set_yticks()
         ax_top.set_xticks([])  # Hide x-ticks on top subplot
         
         ax_bottom.plot(sample[i, 1, :])

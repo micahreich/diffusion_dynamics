@@ -2,21 +2,55 @@ import torch
 import numpy as np
 from torch.utils.data import DataLoader, Dataset
 from diffusion_dynamics.utils import np_sigmoid, np_logit
+from dataclasses import dataclass, asdict
+
+
+@dataclass
+class TensorDataset1DStats:
+    mean: torch.Tensor
+    std: torch.Tensor
+    n_samples: int
+    n_channels: int
+    seq_len: int
+    normalized: bool
+
+    @staticmethod
+    def load(fpath) -> "TensorDataset1DStats":
+        stats = torch.load(fpath)
+        return TensorDataset1DStats(**stats)
+    
+    def save(self, fpath):
+        torch.save(asdict(self), fpath)
+    
+    def normalize_data(self, data: torch.Tensor) -> torch.Tensor:
+        return (data - self.mean) / self.std
+    
+    def unnormalize_data(self, data: torch.Tensor) -> torch.Tensor:
+        return data * self.std + self.mean
 
 
 class TensorDataset1D(Dataset):
-    def __init__(self, data):
+    def __init__(self, data, normalize):
         super().__init__()
         
         assert len(data.shape) == 3, "Data must have shape (n_samples, n_channels, seq_len)"
     
         self.data = data
+        self.normalized = normalize
+        self.stats = self.get_data_stats(self.data)
         
-        self.data_mean, self.data_std = None, None
-        self.normalize_data = False
+        if normalize:
+            self.data -= self.stats.mean
+            self.data /= self.stats.std
+    
+    def get_data_stats(self, data):
+        n_samples, n_channels, seq_len = data.shape
         
-        self.n_samples, self.n_channels, self.seq_len = data.shape
+        mu = torch.mean(data, dim=(0, -1), keepdim=True)
+        std = torch.std(data, dim=(0, -1), keepdim=True)
         
+        return TensorDataset1DStats(mu, std, n_samples, n_channels, seq_len, self.normalized)
+    
     def __len__(self):
         return self.data.shape[0]
     
