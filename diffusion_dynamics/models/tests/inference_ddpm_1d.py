@@ -23,8 +23,9 @@ if __name__ == '__main__':
     mu_np = trained_dataset_params["data_mean"]
     sigma_np = trained_dataset_params["data_std"]
     
-    mu_pt = torch.squeeze(torch.tensor(mu_np, device=device))
-    sigma_pt = torch.squeeze(torch.tensor(sigma_np, device=device))
+    if mu_np is not None and sigma_np is not None:
+        mu_pt = torch.squeeze(torch.tensor(mu_np, device=device))
+        sigma_pt = torch.squeeze(torch.tensor(sigma_np, device=device))
     
     # Generate some sequences via inference
     n_samples = 5
@@ -38,18 +39,18 @@ if __name__ == '__main__':
         sample = torch.randn((n_samples, ExampleModel.n_channels, seq_length), device=device)
         # scheduler.timesteps is an iterable of timesteps in descending order
         for t in ExampleModel.scheduler.timesteps:
-            sample[:, 0, -1] = 0.0 #torch.tanh(0.0 * sigma_pt[0] + mu_pt[0])
-            sample[:, 0, 0] = 0.0
-            
             # For each diffusion step, create a batch of the current timestep
             t_batch = torch.full((n_samples,), t, device=device, dtype=torch.long)
             # Predict the noise residual
             noise_pred = ExampleModel.model(sample, t_batch)
             # Compute the previous sample (one denoising step)
             sample = ExampleModel.scheduler.step(noise_pred, t, sample)["prev_sample"]
+            
+            # sample[:, 0, -1] = 0.0
+            sample[:, 0, 0] = 0.0
     
     sample = sample.cpu().numpy()
-    sample = NumpyDataset1D.unnormalize(sample, mean=mu_np, std=sigma_np)
+    # sample = NumpyDataset1D.unnormalize(sample, mean=mu_np, std=sigma_np)
     
     # generated = ExampleModel.sample(n_inference_samples, 128)
     # generated = generated.cpu().numpy()

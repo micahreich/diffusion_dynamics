@@ -21,7 +21,7 @@ import os
 import pickle
 import einops
 from typing import Optional, Callable
-from diffusion_dynamics.models.helpers import Residual, PreNorm
+from diffusion_dynamics.models.helpers import Residual, PreNorm, LinearAttention
 from diffusion_dynamics.models.utils import NumpyDataset1D
 from einops.layers.torch import Rearrange
 
@@ -31,13 +31,14 @@ class UNet1D(nn.Module):
                  in_channels=1,
                  out_channels=1,
                  base_channels=64,
-                 dim_mults=[1, 2, 4]):
+                 dim_mults=[1, 2, 4],
+                 attention=True):
         super().__init__()
         
         dims = [in_channels, *map(lambda m: base_channels * m, dim_mults)]
         in_out = list(zip(dims[:-1], dims[1:]))
         num_resolutions = len(in_out)
-        
+                
         self.time_embed_dim = base_channels
         self.time_mlp = nn.Sequential(
             nn.Linear(self.time_embed_dim, self.time_embed_dim * 4),
@@ -54,12 +55,13 @@ class UNet1D(nn.Module):
             self.downs.append(nn.ModuleList([
                 ResidualTemporalBlock1D(dim_in, dim_out, embed_dim=self.time_embed_dim, kernel_size=5),
                 ResidualTemporalBlock1D(dim_out, dim_out, embed_dim=self.time_embed_dim, kernel_size=5),
+                Residual(PreNorm(dim_out, LinearAttention(dim_out, heads=4, dim_head=32))) if attention else nn.Identity(),
                 Downsample1D(dim_out, use_conv=True) if not is_last else nn.Identity()
             ]))
 
         mid_dim = dims[-1]
         self.mid_block1 = ResidualTemporalBlock1D(mid_dim, mid_dim, embed_dim=self.time_embed_dim)
-        self.mid_attn = Residual(PreNorm(mid_dim, Attention(query_dim=mid_dim, heads=4, dim_head=32, scale_qk=True)))
+        self.mid_attn = Residual(PreNorm(mid_dim, LinearAttention(mid_dim, heads=4, dim_head=32))) if attention else nn.Identity()
         self.mid_block2 = ResidualTemporalBlock1D(mid_dim, mid_dim, embed_dim=self.time_embed_dim)
 
         for ind, (dim_in, dim_out) in enumerate(reversed(in_out[1:])):
@@ -68,6 +70,7 @@ class UNet1D(nn.Module):
             self.ups.append(nn.ModuleList([
                 ResidualTemporalBlock1D(dim_out * 2, dim_in, embed_dim=self.time_embed_dim, kernel_size=5),
                 ResidualTemporalBlock1D(dim_in, dim_in, embed_dim=self.time_embed_dim, kernel_size=5),
+                Residual(PreNorm(dim_in, LinearAttention(dim_in, heads=4, dim_head=32))) if attention else nn.Identity(),
                 Upsample1D(dim_in, use_conv_transpose=True) if not is_last else nn.Identity()
             ]))
 
@@ -84,26 +87,22 @@ class UNet1D(nn.Module):
         t = self.time_mlp(t_embedded)
         h = []
 
-        for resnet, resnet2, downsample in self.downs:
+        for resnet, resnet2, attn, downsample in self.downs:
             x = resnet(x, t)
             x = resnet2(x, t)
-            # x = attn(x)
+            x = attn(x)
             h.append(x)
             x = downsample(x)
 
         x = self.mid_block1(x, t)
-        
-        x = einops.rearrange(x, 'b c l -> b l c')
-        x = self.mid_attn(x)
-        x = einops.rearrange(x, 'b l c -> b c l')
-        
+        x = self.mid_attn(x)        
         x = self.mid_block2(x, t)
 
-        for resnet, resnet2, upsample in self.ups:
+        for resnet, resnet2, attn, upsample in self.ups:
             x = torch.cat((x, h.pop()), dim=1)
             x = resnet(x, t)
             x = resnet2(x, t)
-            # x = attn(x)
+            x = attn(x)
             x = upsample(x)
 
         x = self.final_conv(x)
