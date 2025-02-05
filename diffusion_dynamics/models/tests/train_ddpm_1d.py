@@ -14,6 +14,7 @@ class ExampleModel(UNet1DModel):
             out_channels=n_channels,
             base_channels=32,
             dim_mults=[1, 2, 4],
+            attention=False,
         )
         scheduler = DDPMScheduler(num_train_timesteps=1000,
                                   clip_sample=False,

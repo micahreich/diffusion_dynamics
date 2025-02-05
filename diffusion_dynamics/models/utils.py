@@ -40,14 +40,13 @@ class TensorDataset1D(Dataset):
         self.stats = self.get_data_stats(self.data)
         
         if normalize:
-            self.data -= self.stats.mean
-            self.data /= self.stats.std
+            self.data = (self.data - self.stats.mean) / self.stats.std
     
     def get_data_stats(self, data):
         n_samples, n_channels, seq_len = data.shape
         
         mu = torch.mean(data, dim=(0, -1), keepdim=True)
-        std = torch.std(data, dim=(0, -1), keepdim=True)
+        std = torch.maximum(torch.tensor(1e-8), torch.std(data, dim=(0, -1), keepdim=True))
         
         return TensorDataset1DStats(mu, std, n_samples, n_channels, seq_len, self.normalized)
     
