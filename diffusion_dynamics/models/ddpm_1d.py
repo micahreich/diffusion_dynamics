@@ -118,12 +118,12 @@ class UNet1DModel:
 
     @classmethod
     def train(cls,
-              dataset: NumpyDataset1D,
+              dataset: Dataset,
               n_epochs=100,
               batch_size=64,
               learning_rate=1e-4,
               save_model_params=None,
-              set_initial_conditioning=True):
+              initial_conditioning_channel_idx=[]):
         assert cls.model is not None, "model must be instantiated before training"
         assert cls.scheduler is not None, "noise scheduler must be instantiated before training"
         assert cls.n_channels is not None, "number of channels must be set before training"
@@ -141,8 +141,8 @@ class UNet1DModel:
         }
         
         dataset_params = {
-            "n_samples": dataset.n_samples,
-            "seq_length": dataset.seq_len,
+            "n_samples": len(dataset),
+            # "seq_length": dataset.seq_len,
             "n_channels": dataset.n_channels,
             "normalize_data": dataset.normalize_data,
             "data_mean": dataset.data_mean,
@@ -170,8 +170,7 @@ class UNet1DModel:
                     noise = torch.randn_like(batch)
                     noisy_batch = cls.scheduler.add_noise(batch, noise, t)
                     
-                    if set_initial_conditioning:
-                        noisy_batch[:, :, 0] = batch[:, :, 0]
+                    noisy_batch[:, initial_conditioning_channel_idx, 0] = batch[:, initial_conditioning_channel_idx, 0]
                     
                     # Predict added noise and perform backward pass
                     noise_pred = cls.model(noisy_batch, t)            

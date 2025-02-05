@@ -1,8 +1,9 @@
 import numpy as np
 from diffusion_dynamics.models.ddpm_1d import UNet1DModel, UNet1D
 from diffusers.schedulers import DDPMScheduler
-from diffusion_dynamics.models.utils import NumpyDataset1D
+from diffusion_dynamics.models.utils import TensorDataset1D
 import torch
+from torch.distributions import Normal, Uniform
 
 class ExampleModel(UNet1DModel):
     n_channels = 2
@@ -30,26 +31,24 @@ if __name__ == '__main__':
     seq_length = 128
     n_channels = 2
     
-    x = np.linspace(0, 2 * np.pi, seq_length)
-    data = np.empty(shape=(n_samples, n_channels, seq_length))
+    x = torch.linspace(0, 2 * np.pi, seq_length)
+    phase = Uniform(0, 2*torch.pi)
+    freq = Uniform(0.5, 5.0)
     
-    for i in range(n_samples):
-        freq = np.random.uniform(0.5, 5.0)
-        phase = np.random.uniform(0, 2 * np.pi)
-        amplitude = 7.0
-        
-        sinusoidal_component = amplitude * np.sin(freq * x + phase)
-        
-        step_idx = np.random.randint(0, seq_length)
-        step_component = np.where(np.arange(seq_length) < step_idx, 0.0, 1.0)
-        
-        data[i, 0, :] = sinusoidal_component
-        data[i, 1, :] = step_component
+    sin_data = 7.0 * torch.sin(
+        x.unsqueeze(0) * freq.sample((n_samples, 1)) + freq.sample((n_samples, 1))
+    )
+    
+    step_data = (torch.arange(seq_length).unsqueeze(0).expand(n_samples, seq_length) >= \
+                torch.randint(0, seq_length, (n_samples,)).unsqueeze(1)).float()
+    
+    data = torch.stack([sin_data, step_data], dim=1)
 
     # Train the model
-    dataset = NumpyDataset1D(np_data=data, normalize_data=False)
+    dataset = TensorDataset1D(data=data)
     ExampleModel.train(dataset,
                        n_epochs=250,
                        batch_size=128,
                        learning_rate=2e-4,
-                       save_model_params=saved_model_params)
+                       save_model_params=saved_model_params,
+                       initial_conditioning_channel_idx=[0, 1])

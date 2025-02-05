@@ -28,25 +28,24 @@ class RenderEnvironment:
     def add_element(self, element, *args, **kwargs):
         self.elements.append(element(self, *args, **kwargs))
         
-
-    def render(self, t_range, t_history, X_history, U_history,
+    def render(self, t_range,
                fps=30, repeat=True):
         import matplotlib.animation as animation
 
-        t_render = np.arange(t_range[0], t_range[1], 1/fps)
-        _, x_render, u_render = interp_x_u_history(t_history, X_history, U_history, t_render)
+        n_frames = int(fps * (t_range[1] - t_range[0]))
+        actual_fps = n_frames / (t_range[1] - t_range[0])
+        
+        t_render = np.linspace(t_range[0], t_range[1], n_frames)
         
         def update(idx):
             self.fig.suptitle(r"$t = {:.2f}$ s".format(t_render[idx]))
             
             for element in self.elements:
-                element.update(
-                    t_render[idx], x_render[idx], u_render[idx]
-                )
+                element.update(t_render[idx])
         
         ani = animation.FuncAnimation(self.fig, update,
-                                      frames=len(t_render),
-                                      interval=1/fps * 1e3,
+                                      frames=n_frames,
+                                      interval=1/actual_fps * 1e3,
                                       repeat=repeat)
         plt.show()
 

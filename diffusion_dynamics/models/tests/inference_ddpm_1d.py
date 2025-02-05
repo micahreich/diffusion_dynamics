@@ -39,15 +39,15 @@ if __name__ == '__main__':
         sample = torch.randn((n_samples, ExampleModel.n_channels, seq_length), device=device)
         # scheduler.timesteps is an iterable of timesteps in descending order
         for t in ExampleModel.scheduler.timesteps:
+            sample[:, 0, 0] = 5.0
+            sample[:, 1, 0] = 0.0
+            
             # For each diffusion step, create a batch of the current timestep
             t_batch = torch.full((n_samples,), t, device=device, dtype=torch.long)
             # Predict the noise residual
             noise_pred = ExampleModel.model(sample, t_batch)
             # Compute the previous sample (one denoising step)
             sample = ExampleModel.scheduler.step(noise_pred, t, sample)["prev_sample"]
-            
-            # sample[:, 0, -1] = 0.0
-            # sample[:, 0, 0] = 0.0
     
     sample = sample.cpu().numpy()
     # sample = NumpyDataset1D.unnormalize(sample, mean=mu_np, std=sigma_np)

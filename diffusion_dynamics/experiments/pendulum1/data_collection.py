@@ -1,8 +1,6 @@
 from diffusion_dynamics.simulation.systems import Pendulum, PendulumParams, PendulumRenderElement
 from diffusion_dynamics.simulation.simulator import simulate_dynamical_system
-import jax.numpy as jnp
-import jax
-import numpy as np
+import torch
 from scipy.linalg import solve_continuous_are
 from diffusion_dynamics.simulation.animation import RenderEnvironment
 import matplotlib.pyplot as plt
@@ -12,70 +10,85 @@ from tqdm import tqdm
 from datetime import datetime
 import pytz
 import os
+from torch.distributions import Uniform, Normal
+import numpy as np
+import torch.multiprocessing as mp
+
+system = Pendulum(
+    PendulumParams(m=1, l=1, b=1.0)
+)
+
+N_training_trajectories = 10_000
+
+seq_len = 128
+dt = 0.05 # s
+tf = dt * (seq_len-1) # s
+
+theta_dist = Uniform(-torch.pi, torch.pi)
+omega_dist = Normal(0, 1)
+u = lambda t, x: torch.zeros(1)
+
+
+def worker(i, n_proc, n_traj, queue):
+    training_data = torch.zeros(size=(n_traj, system.nx + system.nu, seq_len))
+
+    for i in range(n_traj): #, f"Worker {i}", position=i, leave=True, nrows=n_proc+1, mininterval=0.5)
+        x0 = torch.cat([theta_dist.sample((1,)), omega_dist.sample((1,))])
+        
+        _, xs, us = simulate_dynamical_system(
+            sys=system,
+            tf=tf,
+            x0=x0,
+            u=u,
+            dt=dt,
+            log_data=False
+        )
+
+        # Pad the control sequence with zeros at the beginning
+        padded_us = torch.nn.functional.pad(us, (0,0,1,0), mode='constant', value=0.0)
+        Y = torch.cat([xs, padded_us], dim=1).T
+        
+        assert Y.shape == (system.nx + system.nu, seq_len)
+        
+        training_data[i] = Y
+    
+    queue.put(training_data)
 
 
 if __name__ == "__main__":
-    N_training_trajectories = 12_000
-    seq_len = 128
-    dt = 0.05 # s
-    tf = dt * (seq_len - 1) # s
+    n_proc = 10
+    procs = []
+    queue = mp.Queue()
     
-    system = Pendulum(
-        PendulumParams(m=1, l=1, b=0.5)
-    )
+    N_traj_per_proc = N_training_trajectories // n_proc
     
-    # df_dx = jax.jacfwd(system.continuous_dynamics, argnums=0)
-    # df_du = jax.jacfwd(system.continuous_dynamics, argnums=1)
-    # x0 = jnp.array([jnp.pi, 0.0])
-    # u0 = jnp.array([0.0])
+    print(f"Collecting data ({N_training_trajectories} trajectories) with {n_proc} processes...")
     
-    # A = df_dx(x0, u0)
-    # B = df_du(x0, u0)
-    # Q = jnp.eye(system.nx)
-    # R = 0.1 * jnp.eye(system.nu)
-    # P = solve_continuous_are(A, B, Q, R)
-    # K = jnp.linalg.inv(R) @ B.T @ P
+    with mp.Manager() as manager:
+        queue = manager.Queue()
+
+        procs = []
+        for i in range(n_proc):
+            if i == n_proc - 1:
+                N_traj_per_proc += N_training_trajectories % (N_traj_per_proc * n_proc)
+                
+            p = mp.Process(target=worker, args=(i, n_proc, N_traj_per_proc, queue))
+            p.start()
+            procs.append(p)
+
+        res = [queue.get() for _ in range(n_proc)]
+
+        for p in procs:
+            p.join()
     
-    training_data = np.empty(shape=(N_training_trajectories, system.nx + system.nu, seq_len))
-
-    for i in tqdm(range(N_training_trajectories)):
-        theta0 = np.random.normal(loc=np.pi, scale=0.2)
-        omega0 = np.random.normal(loc=0.0, scale=1.0)
-        
-        ts, xs, us = simulate_dynamical_system(
-            sys=system,
-            tf=tf,
-            x0=np.array([theta0, omega0]),
-            u=lambda t, x: np.zeros(system.nu),
-            dt=dt
-        )
-        
-        padded_us = np.pad(us, ((0, 1), (0, 0)), mode='constant', constant_values=0.0)
-        Y = np.hstack([xs, padded_us]).T
-        training_data[i] = Y
-
-    indices = np.random.choice(N_training_trajectories, size=5, replace=False)
-
-    for i in indices:
-        xs, us = training_data[i, :system.nx, :].T, training_data[i, system.nx:, :].T
-        fig, ax = plt.subplots(figsize=(5, 5))
-        ax.grid(True)
-        ax.set_xlim(-2, 2)
-        ax.set_ylim(-2, 2)
-        ax.set_aspect('equal')
-        
-        env = RenderEnvironment(fig, ax)
-        env.add_element(
-            PendulumRenderElement
-        )
-        fig.suptitle(f"Trajectory {i}")
-        
-        
-        env.render(t_range=(0, tf), t_history=ts, X_history=xs, U_history=us, fps=30, repeat=False)
-
+    training_data = torch.cat(res, dim=0)
+    
+    print("Training data shape:", training_data.shape)
+    
     nyc_tz = pytz.timezone('America/New_York')
     time_str = datetime.now(nyc_tz).strftime("%Y-%m-%d__%H-%M-%S")
     save_fpath = "/workspace/diffusion_dynamics/experiments/pendulum1/data"
+    save_fpath_full = os.path.join(save_fpath, f"pendulum1_nocontrols3_N={N_training_trajectories}_{time_str}.pt")        
+    
     os.makedirs(save_fpath, exist_ok=True)
-    save_fpath_full = os.path.join(save_fpath, f"pendulum1_nocontrols2_N={N_training_trajectories}_{time_str}.npy")        
-    np.save(save_fpath_full, training_data)
+    torch.save(training_data, save_fpath_full)

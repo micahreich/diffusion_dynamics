@@ -2,6 +2,7 @@ import numpy as np
 from typing import Any, Tuple
 from scipy.linalg import block_diag
 from dataclasses import dataclass
+import torch
 
 
 def unpack_state(x, nx) -> Tuple[np.ndarray, np.ndarray]:
@@ -24,3 +25,5 @@ def np_sigmoid(x):
 def np_logit(x):
     return np.log(x / (1 - x))
 
+def ptu_torch_to_numpy(x):
+    return x.detach().cpu().numpy()

@@ -4,6 +4,26 @@ from torch.utils.data import DataLoader, Dataset
 from diffusion_dynamics.utils import np_sigmoid, np_logit
 
 
+class TensorDataset1D(Dataset):
+    def __init__(self, data):
+        super().__init__()
+        
+        assert len(data.shape) == 3, "Data must have shape (n_samples, n_channels, seq_len)"
+    
+        self.data = data
+        
+        self.data_mean, self.data_std = None, None
+        self.normalize_data = False
+        
+        self.n_samples, self.n_channels, self.seq_len = data.shape
+        
+    def __len__(self):
+        return self.data.shape[0]
+    
+    def __getitem__(self, idx):
+        return self.data[idx]
+
+
 class NumpyDataset1D(Dataset):
     def __init__(self, np_data=None, normalize_data=True):
         assert np_data is not None, "Data must be provided"
