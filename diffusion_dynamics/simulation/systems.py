@@ -18,15 +18,16 @@ class DynamicalSystem:
         self.nxx = self.nx//2
         self.nu = nu
         
-        self.t_history = []
-        self.x_history = []
-        self.u_history = []
+        self.t_history = self.x_history = self.u_history = None
     
     def clear_history(self) -> None:
-        self.t_history = []
-        self.x_history = []
-        self.u_history = []
+        self.t_history = self.x_history = self.u_history = None
     
+    def set_history(self, ts, xs, us) -> None:
+        self.t_history = ts
+        self.x_history = xs
+        self.u_history = us
+            
     def get_history(self, dtype="torch") -> Any:
         assert dtype in ["torch", "numpy"], "Type must be 'torch' or 'numpy'"
         
@@ -37,11 +38,11 @@ class DynamicalSystem:
 
     def query_history(self, t: float, dtype="torch") -> Tuple:
         assert dtype in ["torch", "numpy"], "Type must be 'torch' or 'numpy'"
-        assert self.t_history, "No time history to query"
-                
-        t = np.clip(t, 0, self.t_history[-1])        
-        idx_hi = np.searchsorted(self.t_history, t, side='left')
-        idx_lo = max(0, idx_hi - 1)
+        assert self.t_history is not None, "No time history to query"
+        
+        t = torch.tensor(t) if dtype == "torch" else t
+        idx_hi = torch.searchsorted(self.t_history, t)
+        idx_lo = torch.maximum(torch.tensor(0), idx_hi - 1)
         
         t_lo, t_hi = self.t_history[idx_lo], self.t_history[idx_hi]
         

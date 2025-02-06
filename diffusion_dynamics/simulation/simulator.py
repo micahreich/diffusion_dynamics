@@ -25,28 +25,25 @@ def simulate_dynamical_system(sys: DynamicalSystem, tf: float,
     if log_data: sys.clear_history()
     
     ts = torch.arange(0, tf, dt)
+    if tf - ts[-1] > 0:
+        ts = torch.cat([ts, torch.tensor([tf])])
     
-    X_history = torch.empty((len(ts)+1, sys.nx))
-    U_history = torch.empty((len(ts), sys.nu))
+    X_history = torch.empty((len(ts), sys.nx))
+    U_history = torch.empty((len(ts)-1, sys.nu))
+    
+    # Set initial state
     X_history[0] = x0
     
-    for i, t in enumerate(ts):
-        if tf - t <= dt:
-            dt = tf - t
+    for i, t in enumerate(ts[:-1]):
+        dt = ts[i+1] - t
         
         U_history[i] = u(t, X_history[i])
         X_history[i+1] = rk4_step(sys.continuous_dynamics, X_history[i], U_history[i], dt)
         
-        if log_data:
-            sys.t_history.append(t.item())
-            sys.x_history.append(X_history[i])
-            sys.u_history.append(U_history[i])
-
     if log_data:
-        sys.t_history.append(tf)
-        sys.x_history.append(X_history[-1])
+        sys.set_history(ts, X_history, U_history)
     
-    return torch.tensor(sys.t_history), X_history, U_history
+    return ts, X_history, U_history
     
     
 if __name__ == "__main__":
@@ -64,7 +61,8 @@ if __name__ == "__main__":
         tf=10.0,
         x0=x0,
         u=u,
-        dt=0.01
+        dt=0.03,
+        log_data=True
     )
     
     fig, ax = plt.subplots(figsize=(5, 5))
@@ -77,4 +75,4 @@ if __name__ == "__main__":
     env.add_element(
         PendulumRenderElement, sys
     )
-    env.render(t_range=(0, 10), fps=30)
+    env.render(t_range=(0, 10), fps=30, save_fpath="/workspace/diffusion_dynamics/simulation/pendulum.mp4")

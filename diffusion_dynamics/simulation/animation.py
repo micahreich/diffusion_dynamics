@@ -1,6 +1,7 @@
 import numpy as np
 import matplotlib.pyplot as plt
 import matplotlib.animation as animation
+import os
 
 
 def interp_x_u_history(ts, xs, us, ts_query):
@@ -29,11 +30,11 @@ class RenderEnvironment:
         self.elements.append(element(self, *args, **kwargs))
         
     def render(self, t_range,
-               fps=30, repeat=True):
+               fps=30, repeat=True, save_fpath=None):
         import matplotlib.animation as animation
 
         n_frames = int(fps * (t_range[1] - t_range[0]))
-        actual_fps = n_frames / (t_range[1] - t_range[0])
+        actual_fps = int(n_frames / (t_range[1] - t_range[0]))
         
         t_render = np.linspace(t_range[0], t_range[1], n_frames)
         
@@ -47,8 +48,16 @@ class RenderEnvironment:
                                       frames=n_frames,
                                       interval=1/actual_fps * 1e3,
                                       repeat=repeat)
-        plt.show()
 
+        if save_fpath is not None:
+            base, _ = os.path.splitext(save_fpath)
+            fpath = f"{base}.mp4"
+            
+            print(f"Saving animation to {fpath} ...")
+            ani.save(fpath, writer=animation.FFMpegWriter(fps=actual_fps, codec="mpeg4"))
+        
+        return ani
+        
 class RenderElement:
     def __init__(self, env: RenderEnvironment) -> None:
         self.env = env

@@ -20,7 +20,7 @@ class PendulumModel(UNet1DModel):
         scheduler = DDPMScheduler(num_train_timesteps=1000,
                                   clip_sample=False,
                                   variance_type="fixed_small_log")
-        
+
         super().__init__(unet, scheduler, n_channels)
 
 if __name__ == "__main__":    

@@ -191,28 +191,26 @@ class UNet1DModel:
         torch.save(self.unet.state_dict(), os.path.join(save_fpath_full, "model.pt"))
         train_dataset.stats.save(os.path.join(save_fpath_full, "dataset_stats.pt"))
     
-    def sample(self, n_samples, seq_length, g: Optional[Callable] = None) -> torch.Tensor:
-        device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    # def sample(self, n_samples, seq_length, g: Optional[Callable] = None) -> torch.Tensor:
+    #     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         
-        self.unet.to(device)
-        self.unet.eval()
+    #     self.unet.to(device)
+    #     self.unet.eval()
     
-        with torch.no_grad():
-            # Start from random Gaussian noise
-            sample = torch.randn((n_samples, self.n_channels, seq_length), device=device)
-            # scheduler.timesteps is an iterable of timesteps in descending order
-            for t in self.scheduler.timesteps:
-                # For each diffusion step, create a batch of the current timestep
-                t_batch = torch.full((n_samples,), t, device=device, dtype=torch.long)
-                # Predict the noise residual
-                noise_pred = self.unet(sample, t_batch)
-                # Compute the previous sample (one denoising step)
-                sample = self.scheduler.step(noise_pred, t, sample)["prev_sample"]
+    #     with torch.no_grad():
+    #         # Start from random Gaussian noise
+    #         sample = torch.randn((n_samples, self.n_channels, seq_length), device=device)
+    #         # scheduler.timesteps is an iterable of timesteps in descending order
+    #         for t in self.scheduler.timesteps:
+    #             # For each diffusion step, create a batch of the current timestep
+    #             t_batch = torch.full((n_samples,), t, device=device, dtype=torch.long)
+    #             noise_pred = self.unet(sample, t_batch)
+    #             sample = self.scheduler.step(noise_pred, t, sample)["prev_sample"]
                 
-                if g is not None:
-                    sample = g(sample, t)
+    #             if g is not None:
+    #                 sample = g(sample, t)
                     
-            return sample
+    #         return sample
     
     @classmethod
     def load_trained_model(cls, saved_model_fpath):
