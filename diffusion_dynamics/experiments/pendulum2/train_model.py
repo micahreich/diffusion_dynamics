@@ -32,7 +32,7 @@ if __name__ == "__main__":
     }
     
     # Train the model
-    data_fpath = "/workspace/diffusion_dynamics/experiments/pendulum1/data/pendulum1_nocontrols3_N=10000_2025-02-05__02-22-34.pt"
+    data_fpath = "/workspace/diffusion_dynamics/experiments/pendulum2/data/pendulum2_brownianU1_N=10000_2025-02-06__04-43-00.pt"
     data = torch.load(data_fpath)
     dataset = TensorDataset1D(data=data, normalize=False)
     
@@ -43,4 +43,5 @@ if __name__ == "__main__":
                        batch_size=128,
                        learning_rate=1e-4,
                        save_model_params=saved_model_params,
-                       initial_conditioning_channel_idx=[0, 1])
+                       initial_conditioning_channel_idx=[0, 1],
+                       condition_controls_idx=[2])

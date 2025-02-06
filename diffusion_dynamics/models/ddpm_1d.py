@@ -124,7 +124,8 @@ class UNet1DModel:
               batch_size=64,
               learning_rate=1e-4,
               save_model_params=None,
-              initial_conditioning_channel_idx=[]):
+              initial_conditioning_channel_idx=[],
+              condition_controls_idx=[]):
         assert self.unet is not None, "model must be instantiated before training"
         assert self.scheduler is not None, "noise scheduler must be instantiated before training"
         assert self.n_channels is not None, "number of channels must be set before training"
@@ -157,6 +158,7 @@ class UNet1DModel:
                     noisy_batch = self.scheduler.add_noise(batch, noise, t)
                     
                     noisy_batch[:, initial_conditioning_channel_idx, 0] = batch[:, initial_conditioning_channel_idx, 0]
+                    noisy_batch[:, condition_controls_idx, :] = batch[:, condition_controls_idx, :]
                     
                     # Predict added noise and perform backward pass
                     noise_pred = self.unet(noisy_batch, t)            
