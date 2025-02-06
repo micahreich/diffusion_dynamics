@@ -30,27 +30,27 @@ if __name__ == "__main__":
     pendulum_model.unet.to(device)
     pendulum_model.unet.eval()
     
-    n_samples = 10
-    seq_len = 64
+    n_samples = 1
+    seq_len = 128
     dt = 0.05
         
-    pendulum_model.scheduler.set_timesteps(num_inference_steps=20)
+    pendulum_model.scheduler.set_timesteps(num_inference_steps=50)
     
     start_time = time.perf_counter()
     with torch.no_grad():
         sample = torch.randn((n_samples, pendulum_model.n_channels, seq_len), device=device)
         
         for t in pendulum_model.scheduler.timesteps:
-            theta0, omega0 = 2.5, 0.7
+            theta0, omega0 = 2.5, 1.0
             
-            sample[:, 0, 0] = theta0
-            sample[:, 1, 0] = omega0
+            sample[0, 0, 0] = theta0
+            sample[0, 1, 0] = omega0
             
             t_batch = torch.full((n_samples,), t, device=device, dtype=torch.long)
             noise_pred = pendulum_model.unet(sample, t_batch)
             sample = pendulum_model.scheduler.step(noise_pred, t, sample)["prev_sample"]
 
-    print(f"Inference ({n_samples} samples) took {time.perf_counter() - start_time :.3f} s")
+    print(f"Inference took {time.perf_counter() - start_time :.3f} s")
     
     from data_collection import system
 
@@ -59,11 +59,9 @@ if __name__ == "__main__":
     us = sample[0, system.nx:, :].T
         
     ts_sim, xs_sim, us_sim = simulate_dynamical_system(system, tf=(seq_len-1)*dt, x0=xs[0], u=lambda t, x: us[int(t/dt)], dt=dt, log_data=False)
-    
+        
     fig, ax = plt.subplots(nrows=2, ncols=1, figsize=(15, 5), sharex=True)    
     ax01 = ax[0].twinx()
-    
-    print(ts_sim[:5], ts_sim[-5:])
     
     ax[0].plot(ts_sim, xs_sim[:, 0], label=r"$\theta$", c="r", linestyle="--")
     ax[0].plot(ts_sim, xs[:, 0], label=r"$\theta_{dm}$", c="r")
@@ -105,5 +103,5 @@ if __name__ == "__main__":
         PendulumRenderElement, system
     )
     
-    _ = env.render(t_range=(0, (seq_len-1)*dt), fps=30, repeat=True)#, save_fpath="/workspace/diffusion_dynamics/experiments/pendulum1/rollout.mp4")
+    _ = env.render(t_range=(0, (seq_len-1)*dt), fps=30, repeat=True, save_fpath="/workspace/diffusion_dynamics/experiments/pendulum1/rollout.mp4")
     plt.show()

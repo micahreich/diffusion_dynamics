@@ -40,10 +40,12 @@ class DynamicalSystem:
         assert dtype in ["torch", "numpy"], "Type must be 'torch' or 'numpy'"
         assert self.t_history is not None, "No time history to query"
         
-        t = torch.tensor(t) if dtype == "torch" else t
+        # Clamp t to the range of the time history
+        t = torch.maximum(torch.tensor(0), torch.minimum(self.t_history[-1], torch.tensor(t)))
         idx_hi = torch.searchsorted(self.t_history, t)
         idx_lo = torch.maximum(torch.tensor(0), idx_hi - 1)
         
+        # Look up indices based on time to do linear interpolation of states, controls
         t_lo, t_hi = self.t_history[idx_lo], self.t_history[idx_hi]
         
         if idx_lo == idx_hi:

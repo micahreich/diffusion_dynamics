@@ -25,8 +25,10 @@ def simulate_dynamical_system(sys: DynamicalSystem, tf: float,
     if log_data: sys.clear_history()
     
     ts = torch.arange(0, tf, dt)
-    if tf - ts[-1] > 0:
-        ts = torch.cat([ts, torch.tensor([tf])])
+    tf = torch.tensor([tf], dtype=ts.dtype)
+        
+    if tf - ts[-1] > 10 * torch.finfo(ts.dtype).eps:
+        ts = torch.cat([ts, tf])
     
     X_history = torch.empty((len(ts), sys.nx))
     U_history = torch.empty((len(ts)-1, sys.nu))
