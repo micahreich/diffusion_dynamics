@@ -27,7 +27,7 @@ if __name__ == "__main__":
 
     saved_model_params = {
         "save_fpath": "/workspace/diffusion_dynamics/experiments/pendulum1/saved_models",
-        "save_model_name": "pendulum_model1_nocontrols3",
+        "save_model_name": "pendulum_model2_brownianU1",
     }
 
     # Train the model

@@ -43,7 +43,8 @@ if __name__ == '__main__':
         # scheduler.timesteps is an iterable of timesteps in descending order
         for t in example_model.scheduler.timesteps:
             # for t in ddim_scheduler.timesteps:
-            sample[:, 0, 0] = -1.0
+            
+            sample[:, 0, 0] = -7.0
             sample[:, 1, 0] = 0.0
 
             # For each diffusion step, create a batch of the current timestep
@@ -51,6 +52,7 @@ if __name__ == '__main__':
             # Predict the noise residual
             noise_pred = example_model.unet(sample, t_batch)
             # Compute the previous sample (one denoising step)
+                        
             sample = example_model.scheduler.step(noise_pred, t, sample)["prev_sample"]
             # sample = ddim_scheduler.step(noise_pred, t, sample)["prev_sample"]
 
