@@ -13,3 +13,10 @@ From the root of the repository, run:
 ```bash
 ./run_container.sh
 ```
+
+## Formatting
+
+Run `black` from the repository root with:
+```bash
+black --config pyproject.toml .
+```
