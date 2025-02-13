@@ -30,6 +30,7 @@ RUN pip install --no-cache-dir \
     ipywidgets \
     tensorboard \
     jax \
+    black \
     && pip cache purge
 
 RUN pip install \

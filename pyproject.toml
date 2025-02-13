@@ -32,4 +32,6 @@ packages = ["diffusion_dynamics"]
 "diffusion_dynamics" = ["*.txt", "*.json"] 
 
 [tool.black]
-line-length = 88
+line-length = 120
+skip-string-normalization = true  # Preserve single/double quotes
+include = '\.pyi?$'  # Include only Python files
