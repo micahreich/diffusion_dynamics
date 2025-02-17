@@ -70,7 +70,7 @@ class TensorDataset1D(Dataset):
         noisy_sample[..., conditioning_indices, 0] = x[..., conditioning_indices, 0]
         noise[..., conditioning_indices, 0] = 0.0
         
-        return noisy_sample, noise
+        return noise, noisy_sample
 
     def __len__(self):
         return self.data.shape[0]

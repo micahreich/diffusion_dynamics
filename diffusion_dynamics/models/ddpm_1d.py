@@ -157,7 +157,7 @@ class UNet1DModel:
         self.unet.train()
 
         optimizer = torch.optim.Adam(self.unet.parameters(), lr=learning_rate)
-
+        
         try:
             for epoch in range(n_epochs):
                 pbar = tqdm(dataloader, desc=f"Epoch {epoch}", unit="batch")

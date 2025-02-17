@@ -62,5 +62,4 @@ if __name__ == '__main__':
         batch_size=128,
         learning_rate=2e-4,
         save_model_params=saved_model_params,
-        initial_conditioning_channel_idx=[],
     )  # list(range(n_channels)))
