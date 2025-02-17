@@ -10,6 +10,7 @@ from typing import Tuple
 class TensorDataset1DStats:
     mean: torch.Tensor
     std: torch.Tensor
+    conditioning_indices: list
     n_samples: int
     n_channels: int
     seq_len: int
@@ -47,6 +48,18 @@ class TensorDataset1DStats:
             return data * self.std.squeeze(0) + self.mean.squeeze(0)
         
         raise ValueError(f"Data must be 2D or 3D, got {len(data.shape)}D")
+    
+    def apply_conditioning(self, noisy_sample, x, noise=None, conditioning_indices=[]) -> Tuple[torch.Tensor, torch.Tensor]:
+        if len(self.conditioning_indices) > 0:
+            conditioning_indices = self.conditioning_indices
+
+        noisy_sample[:, conditioning_indices, 0] = x[..., conditioning_indices, 0]
+        
+        if noise is not None:
+            noise[:, conditioning_indices, 0] = 0.0
+            return noisy_sample, noise
+        else:
+            return noisy_sample
 
 
 class TensorDataset1D(Dataset):
@@ -71,9 +84,9 @@ class TensorDataset1D(Dataset):
                 n_channels,
                 seq_len,
                 self.normalized,
+                conditioning_indices
             )
         
-        self.conditioning_indices = conditioning_indices
 
     def get_data_stats(self, data, verbose=False):
         assert len(data.shape) == 3, "Data must have shape (n_samples, n_channels, seq_len)"
@@ -87,15 +100,6 @@ class TensorDataset1D(Dataset):
             print(f"Dataset mean: {mu}, Data std: {std}")
 
         return TensorDataset1DStats(mu, std, n_samples, n_channels, seq_len, self.normalized)
-
-    def apply_conditioning(self, noise, noisy_sample, x, conditioning_indices=[]) -> Tuple[torch.Tensor, torch.Tensor]:
-        if self.conditioning_indices:
-            conditioning_indices = self.conditioning_indices
-            
-        noisy_sample[..., conditioning_indices, 0] = x[..., conditioning_indices, 0]
-        noise[..., conditioning_indices, 0] = 0.0
-        
-        return noise, noisy_sample
 
     def __len__(self):
         return self.data.shape[0]

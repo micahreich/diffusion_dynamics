@@ -178,9 +178,10 @@ class UNet1DModel:
                     t = torch.randint(
                         0, self.scheduler.config.num_train_timesteps, (batch.shape[0],), device=device
                     ).long()
+                    
                     noise = torch.randn_like(batch)
                     noisy_batch = self.scheduler.add_noise(batch, noise, t)
-                    noise, noisy_batch = dataset.apply_conditioning(noise, noisy_batch, batch)
+                    noisy_batch, noise = dataset.stats.apply_conditioning(noisy_batch, batch, noise)
 
                     # Predict added noise and perform backward pass
                     model_out = self.unet(noisy_batch, t)

@@ -44,23 +44,23 @@ if __name__ == '__main__':
         for t in example_model.scheduler.timesteps:
             # for t in ddim_scheduler.timesteps:
             
-            conditioning = example_model.train_data_stats.normalize_data(
+            conditioning_normalized = example_model.train_data_stats.normalize_data(
                 torch.tensor([-3.5, 0.0], device=device).view(1, example_model.n_channels, 1)
-            ).squeeze()
-                        
-            sample[:, :, 0] = conditioning
+            )
             
-            # sample[:, 0, 0] = -1.0
-            # sample[:, 1, 0] = 0.0
-
+            sample = example_model.train_data_stats.apply_conditioning(
+                sample,
+                conditioning_normalized
+            )
+        
             # For each diffusion step, create a batch of the current timestep
             t_batch = torch.full((n_samples,), t, device=device, dtype=torch.long)
             
             # Predict the noise residual
-            pred_x0 = example_model.unet(sample, t_batch)
+            model_out = example_model.unet(sample, t_batch)
             
             # Compute the previous sample (one denoising step)
-            sample = example_model.scheduler.step(pred_x0, t, sample)["prev_sample"]
+            sample = example_model.scheduler.step(model_out, t, sample)["prev_sample"]
 
     print(f"Inference took {time.perf_counter() - start_time :.3f} s")
 
