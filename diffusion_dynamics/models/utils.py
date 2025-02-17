@@ -70,6 +70,7 @@ class TensorDataset1D(Dataset):
 
         self.data = data
         self.normalized = normalize
+        self.conditioning_indices = conditioning_indices
         
         n_samples, n_channels, seq_len = data.shape
 
@@ -84,7 +85,7 @@ class TensorDataset1D(Dataset):
                 n_channels,
                 seq_len,
                 self.normalized,
-                conditioning_indices
+                self.conditioning_indices
             )
         
 
@@ -99,7 +100,7 @@ class TensorDataset1D(Dataset):
         if verbose:
             print(f"Dataset mean: {mu}, Data std: {std}")
 
-        return TensorDataset1DStats(mu, std, n_samples, n_channels, seq_len, self.normalized)
+        return TensorDataset1DStats(mu, std, self.conditioning_indices, n_samples, n_channels, seq_len, self.normalized)
 
     def __len__(self):
         return self.data.shape[0]
