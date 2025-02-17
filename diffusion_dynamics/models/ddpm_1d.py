@@ -138,8 +138,6 @@ class UNet1DModel:
         batch_size=64,
         learning_rate=1e-4,
         save_model_params=None,
-        initial_conditioning_channel_idx=[],
-        condition_controls_idx=[],
     ):
         assert self.unet is not None, "model must be instantiated before training"
         assert self.scheduler is not None, "noise scheduler must be instantiated before training"
@@ -173,16 +171,15 @@ class UNet1DModel:
                     ).long()
                     noise = torch.randn_like(batch)
                     noisy_batch = self.scheduler.add_noise(batch, noise, t)
-
-                    noisy_batch[:, initial_conditioning_channel_idx, 0] = batch[:, initial_conditioning_channel_idx, 0]
-                    noise[:, initial_conditioning_channel_idx, 0] = 0.0
-
-                    noisy_batch[:, condition_controls_idx, :] = batch[:, condition_controls_idx, :]
-                    noise[:, condition_controls_idx, :] = 0.0
+                    noise, noisy_batch = dataset.apply_conditioning(noise, noisy_batch, batch)
 
                     # Predict added noise and perform backward pass
-                    noise_pred = self.unet(noisy_batch, t)
-                    loss = F.mse_loss(noise_pred, noise)
+                    model_out = self.unet(noisy_batch, t)
+
+                    if self.scheduler.config.prediction_type == "epsilon":
+                        loss = F.mse_loss(model_out, noise)
+                    elif self.scheduler.config.prediction_type == "sample":                    
+                        loss = F.mse_loss(model_out, batch)
 
                     optimizer.zero_grad()
                     loss.backward()

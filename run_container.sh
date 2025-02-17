@@ -8,7 +8,7 @@ DOCKER_IMAGE_NAME="diffusion_dynamics_image"
 # Directory of this script
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
-# Path to src/ folder (assumes it's at the same level as the script)
+# Path to diffusion_dynamics/ folder
 SRC_DIR="$(realpath "$SCRIPT_DIR")"
 
 # Ensure src/ exists, else create it

@@ -18,7 +18,10 @@ class ExampleModel(UNet1DModel):
             attention=True,
         )
         
-        scheduler = DDPMScheduler(num_train_timesteps=1000, clip_sample=False, variance_type="fixed_small_log")
+        scheduler = DDPMScheduler(num_train_timesteps=1000,
+                                  clip_sample=False,
+                                  variance_type="fixed_small_log",
+                                  prediction_type="sample")
 
         super().__init__(unet, scheduler, n_channels)
 
@@ -51,7 +54,8 @@ if __name__ == '__main__':
     data = torch.stack([sin_data, step_data], dim=1)
 
     # Train the model
-    dataset = TensorDataset1D(data=data, normalize=False)
+    dataset = TensorDataset1D(data=data, normalize=False, verbose=True, conditioning_indices=[0, 1])
+    
     ExampleModel().train(
         dataset,
         n_epochs=250,

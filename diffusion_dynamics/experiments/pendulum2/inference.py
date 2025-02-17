@@ -3,7 +3,7 @@ from diffusion_dynamics.models.ddpm_1d import UNet1DModel, UNet1D
 from diffusers.schedulers import DDPMScheduler
 from diffusion_dynamics.models.utils import NumpyDataset1D
 import torch
-from diffusion_dynamics.experiments.pendulum1.train_model import PendulumModel
+from diffusion_dynamics.experiments.pendulum2.train_model import PendulumModel
 from diffusion_dynamics.simulation.systems import (
     Pendulum,
     PendulumParams,
@@ -24,8 +24,8 @@ device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 if __name__ == "__main__":
     saved_model_params = {
-        "save_fpath": "/workspace/diffusion_dynamics/experiments/pendulum1/saved_models",
-        "save_model_name": "pendulum_model1_nocontrols3",
+        "save_fpath": "/workspace/diffusion_dynamics/experiments/pendulum2/saved_models",
+        "save_model_name": "pendulum2_brownianU1",
     }
 
     # Load the trained model
@@ -42,18 +42,24 @@ if __name__ == "__main__":
 
     pendulum_model.scheduler.set_timesteps(num_inference_steps=50)
 
+    _ts = dt * torch.arange(0, seq_len)
+
     start_time = time.perf_counter()
     with torch.no_grad():
         sample = torch.randn((n_samples, pendulum_model.n_channels, seq_len), device=device)
 
         for t in pendulum_model.scheduler.timesteps:
-            theta0, omega0 = 2.5, 1.0
+            theta0, omega0 = 1.5, 1.0
 
             sample[0, 0, 0] = theta0
             sample[0, 1, 0] = omega0
+            
+            sample[0, 2, 0] = 0.0
+            # sample[0, 2, 1:] = 2.0*torch.sin(2.0 * _ts.to(device)[:-1])
 
             t_batch = torch.full((n_samples,), t, device=device, dtype=torch.long)
             noise_pred = pendulum_model.unet(sample, t_batch)
+            
             sample = pendulum_model.scheduler.step(noise_pred, t, sample)["prev_sample"]
 
     print(f"Inference took {time.perf_counter() - start_time :.3f} s")
@@ -63,7 +69,7 @@ if __name__ == "__main__":
     sample = sample.cpu()
     xs = sample[0, : system.nx, :].T
     us = sample[0, system.nx :, :].T
-
+    
     ts_sim, xs_sim, us_sim = simulate_dynamical_system(
         system,
         tf=(seq_len - 1) * dt,
@@ -84,8 +90,10 @@ if __name__ == "__main__":
     ax01.plot(ts_sim, xs[:, 1], label=r"$\dot{\theta}_{dm}$", c="b")
     ax01.set_ylabel(r"$\dot{\theta}$ [rad/s]")
 
-    ax[1].plot(ts_sim, torch.zeros_like(ts_sim), label=r"$u$", c="g", linestyle="--")
-    ax[1].plot(ts_sim, us[:, 0], label=r"$u_{pred}$", c="g")
+    print(ts_sim.shape, us_sim.shape, us.shape)
+
+    ax[1].plot(ts_sim[1:], us_sim[:, 0], label=r"$u$", c="g", linestyle="--")
+    ax[1].plot(ts_sim, us[:, 0], label=r"$u_{dm}$", c="g")
     ax[1].set_ylabel(r"$\tau$ [Nm]")
 
     ax[0].legend(
@@ -136,6 +144,6 @@ if __name__ == "__main__":
         t_range=(0, (seq_len - 1) * dt),
         fps=30,
         repeat=True,
-        save_fpath="/workspace/diffusion_dynamics/experiments/pendulum1/rollout.mp4",
+        save_fpath=None#"/workspace/diffusion_dynamics/experiments/pendulum1/rollout.mp4",
     )
     plt.show()

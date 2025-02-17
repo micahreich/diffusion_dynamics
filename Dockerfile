@@ -1,11 +1,15 @@
 # Use PyTorch base image with CUDA support
 FROM pytorch/pytorch:2.1.0-cuda12.1-cudnn8-runtime
+ARG HOST_UID
+ARG HOST_GID
+ARG HOST_USER
 
 # Set non-interactive mode for installations
 ENV DEBIAN_FRONTEND=noninteractive
 
 # Update package lists and install necessary dependencies
 RUN apt-get update && apt-get install -y \
+    sudo \
     git \
     wget \
     curl \
@@ -38,6 +42,11 @@ RUN pip install \
     smalldiffusion \
     torch_ema
 
+# Set up current user
+RUN groupadd -g ${HOST_GID} ${HOST_USER} && \
+    useradd -m -u ${HOST_UID} -g ${HOST_USER} ${HOST_USER} && \
+    usermod -aG sudo ${HOST_USER} && \
+    echo "${HOST_USER} ALL=(ALL) NOPASSWD:ALL" >> /etc/sudoers
 
 # Set up Jupyter Notebook config
 RUN mkdir -p /root/.jupyter && \
@@ -54,6 +63,8 @@ RUN pip install -e .
 
 # Expose Jupyter notebook port
 EXPOSE 8888
+
+USER ${HOST_USER}
 
 # Set default command to keep the container running
 CMD ["bash"]

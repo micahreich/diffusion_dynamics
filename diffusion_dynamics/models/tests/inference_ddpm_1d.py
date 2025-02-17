@@ -44,17 +44,17 @@ if __name__ == '__main__':
         for t in example_model.scheduler.timesteps:
             # for t in ddim_scheduler.timesteps:
             
-            sample[:, 0, 0] = -7.0
+            sample[:, 0, 0] = -1.0
             sample[:, 1, 0] = 0.0
 
             # For each diffusion step, create a batch of the current timestep
             t_batch = torch.full((n_samples,), t, device=device, dtype=torch.long)
+            
             # Predict the noise residual
-            noise_pred = example_model.unet(sample, t_batch)
+            pred_x0 = example_model.unet(sample, t_batch)
+            
             # Compute the previous sample (one denoising step)
-                        
-            sample = example_model.scheduler.step(noise_pred, t, sample)["prev_sample"]
-            # sample = ddim_scheduler.step(noise_pred, t, sample)["prev_sample"]
+            sample = example_model.scheduler.step(pred_x0, t, sample)["prev_sample"]
 
     print(f"Inference took {time.perf_counter() - start_time :.3f} s")
 
