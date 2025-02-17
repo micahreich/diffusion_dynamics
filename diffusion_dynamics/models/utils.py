@@ -81,11 +81,11 @@ class TensorDataset1D(Dataset):
             self.stats = TensorDataset1DStats(
                 torch.zeros(1, data.shape[1], 1),
                 torch.ones(1, data.shape[1], 1),
+                self.conditioning_indices
                 n_samples,
                 n_channels,
                 seq_len,
                 self.normalized,
-                self.conditioning_indices
             )
         
 
