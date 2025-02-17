@@ -24,9 +24,23 @@ class TensorDataset1DStats:
         torch.save(asdict(self), fpath)
 
     def normalize_data(self, data: torch.Tensor) -> torch.Tensor:
+        stats_device = self.mean.device
+        data_device = data.device
+        
+        if stats_device != data_device:
+            self.mean = self.mean.to(data_device)
+            self.std = self.std.to(data_device)
+        
         return (data - self.mean) / self.std
 
     def unnormalize_data(self, data: torch.Tensor) -> torch.Tensor:
+        stats_device = self.mean.device
+        data_device = data.device
+        
+        if stats_device != data_device:
+            self.mean = self.mean.to(data_device)
+            self.std = self.std.to(data_device)
+        
         if len(data.shape) == 3:
             return data * self.std + self.mean
         elif len(data.shape) == 2:
@@ -43,10 +57,21 @@ class TensorDataset1D(Dataset):
 
         self.data = data
         self.normalized = normalize
-        self.stats = self.get_data_stats(self.data, verbose)
+        
+        n_samples, n_channels, seq_len = data.shape
 
         if normalize:
+            self.stats = self.get_data_stats(self.data, verbose)
             self.data = (self.data - self.stats.mean) / self.stats.std
+        else:
+            self.stats = TensorDataset1DStats(
+                torch.zeros(1, data.shape[1], 1),
+                torch.ones(1, data.shape[1], 1),
+                n_samples,
+                n_channels,
+                seq_len,
+                self.normalized,
+            )
         
         self.conditioning_indices = conditioning_indices
 

@@ -28,7 +28,7 @@ if __name__ == '__main__':
     n_samples = 5
     seq_length = 128
 
-    example_model.unet.to(device)
+    example_model.to(device)
     example_model.unet.eval()
 
     example_model.scheduler.set_timesteps(num_inference_steps=50)
@@ -44,8 +44,14 @@ if __name__ == '__main__':
         for t in example_model.scheduler.timesteps:
             # for t in ddim_scheduler.timesteps:
             
-            sample[:, 0, 0] = -1.0
-            sample[:, 1, 0] = 0.0
+            conditioning = example_model.train_data_stats.normalize_data(
+                torch.tensor([-3.5, 0.0], device=device).view(1, example_model.n_channels, 1)
+            ).squeeze()
+                        
+            sample[:, :, 0] = conditioning
+            
+            # sample[:, 0, 0] = -1.0
+            # sample[:, 1, 0] = 0.0
 
             # For each diffusion step, create a batch of the current timestep
             t_batch = torch.full((n_samples,), t, device=device, dtype=torch.long)
@@ -58,7 +64,8 @@ if __name__ == '__main__':
 
     print(f"Inference took {time.perf_counter() - start_time :.3f} s")
 
-    sample = sample.cpu().numpy()
+    sample = example_model.train_data_stats.unnormalize_data(sample).cpu().numpy()
+    # sample = sample.cpu().numpy()
 
     fig, axes = plt.subplots(1, n_samples, figsize=(4 * n_samples, 4), sharey=True)
 

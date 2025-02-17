@@ -129,14 +129,23 @@ class UNet1DModel:
         self.scheduler = scheduler
         self.n_channels = n_channels
 
-        self.train_data_stats = None
+        self.train_data_stats: Optional[TensorDataset1DStats] = None
 
+    def to(self, device):
+        if self.unet is not None:
+            self.unet = self.unet.to(device)
+        
+        if self.train_data_stats is not None:
+            self.train_data_stats.mean = self.train_data_stats.mean.to(device)
+            self.train_data_stats.std = self.train_data_stats.std.to(device)
+                
     def train(
         self,
         dataset: TensorDataset1D,
         n_epochs=100,
         batch_size=64,
         learning_rate=1e-4,
+        accumulation_steps=4,
         save_model_params=None,
     ):
         assert self.unet is not None, "model must be instantiated before training"
@@ -181,11 +190,17 @@ class UNet1DModel:
                     elif self.scheduler.config.prediction_type == "sample":                    
                         loss = F.mse_loss(model_out, batch)
 
-                    optimizer.zero_grad()
                     loss.backward()
-                    optimizer.step()
+                    
+                    if (step + 1) % accumulation_steps == 0:
+                        optimizer.step()
+                        optimizer.zero_grad()
+                    
+                    # optimizer.zero_grad()
+                    # loss.backward()
+                    # optimizer.step()
 
-                    pbar.set_postfix(loss=loss.item())
+                    pbar.set_postfix(loss=loss.item() )
         except KeyboardInterrupt:
             print("\nTraining interrupted. Do you want to save the model? (y/n): ", end="")
             response = input().strip().lower()
