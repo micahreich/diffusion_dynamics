@@ -167,13 +167,14 @@ class UNet1DModel:
         self.unet.train()
 
         optimizer = torch.optim.Adam(self.unet.parameters(), lr=learning_rate)
-        lr_scheduler = ReduceLROnPlateau(optimizer, mode='min', factor=0.1, patience=5, verbose=True)
+        lr_scheduler = ReduceLROnPlateau(optimizer, mode='min', factor=0.1, patience=8, verbose=True)
         
         try:
             for epoch in range(n_epochs):
                 pbar = tqdm(dataloader, desc=f"Epoch {epoch}", unit="batch")
                 epoch_loss = 0.0
-                
+                current_lr = optimizer.param_groups[0]['lr']
+
                 for step, batch in enumerate(pbar):
                     batch = batch.to(device)  # shape (batch_size, n_channels, seq_length)
 
@@ -201,7 +202,7 @@ class UNet1DModel:
                         optimizer.zero_grad()
 
                     epoch_loss += loss.item()
-                    pbar.set_postfix(loss=loss.item() )
+                    pbar.set_postfix(loss=loss.item(), lr=current_lr)                
                 
                 epoch_loss /= len(dataloader)
                 lr_scheduler.step(epoch_loss)
