@@ -24,6 +24,7 @@ from typing import Optional, Callable
 from diffusion_dynamics.models.helpers import Residual, PreNorm, LinearAttention
 from diffusion_dynamics.models.utils import TensorDataset1D, TensorDataset1DStats
 from einops.layers.torch import Rearrange
+from torch.optim.lr_scheduler import ReduceLROnPlateau
 
 
 class UNet1D(nn.Module):
@@ -145,7 +146,7 @@ class UNet1DModel:
         n_epochs=100,
         batch_size=64,
         learning_rate=1e-4,
-        accumulation_steps=4,
+        accumulation_steps=2,
         save_model_params=None,
     ):
         assert self.unet is not None, "model must be instantiated before training"
@@ -166,11 +167,13 @@ class UNet1DModel:
         self.unet.train()
 
         optimizer = torch.optim.Adam(self.unet.parameters(), lr=learning_rate)
+        lr_scheduler = ReduceLROnPlateau(optimizer, mode='min', factor=0.1, patience=5, verbose=True)
         
         try:
             for epoch in range(n_epochs):
                 pbar = tqdm(dataloader, desc=f"Epoch {epoch}", unit="batch")
-
+                epoch_loss = 0.0
+                
                 for step, batch in enumerate(pbar):
                     batch = batch.to(device)  # shape (batch_size, n_channels, seq_length)
 
@@ -196,19 +199,21 @@ class UNet1DModel:
                     if (step + 1) % accumulation_steps == 0:
                         optimizer.step()
                         optimizer.zero_grad()
-                    
-                    # optimizer.zero_grad()
-                    # loss.backward()
-                    # optimizer.step()
 
+                    epoch_loss += loss.item()
                     pbar.set_postfix(loss=loss.item() )
+                
+                epoch_loss /= len(dataloader)
+                lr_scheduler.step(epoch_loss)
+
         except KeyboardInterrupt:
             print("\nTraining interrupted. Do you want to save the model? (y/n): ", end="")
             response = input().strip().lower()
             if response == 'n':
                 return
 
-        self._save_model(save_model_params, dataset)
+        if save_model_params is not None:
+            self._save_model(save_model_params, dataset)
 
     def _save_model(self, save_model_params, train_dataset: TensorDataset1D):
         assert save_model_params is not None, "save_model_params must be provided"

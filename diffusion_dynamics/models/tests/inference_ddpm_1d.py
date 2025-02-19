@@ -8,6 +8,17 @@ import matplotlib.pyplot as plt
 import time
 from diffusion_dynamics.models.tests.train_ddpm_1d import ExampleModel
 
+def dJ_dx(x):
+    _, _, seq_len = x.shape
+    
+    switch_idx = seq_len // 2
+    
+    # Encourage low values in the first half of the sequence and high values in the second half
+    mid_switch = torch.norm(x[:, 1, :switch_idx]) + torch.norm(torch.exp(-x[:, 1, switch_idx:]))
+    mid_switch.backward()
+    
+    return x.grad
+
 if __name__ == '__main__':
     # Test DDPM training, saving, and loading
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -36,23 +47,29 @@ if __name__ == '__main__':
     # ddim_scheduler = DDIMScheduler(num_train_timesteps=1000, prediction_type="epsilon", clip_sample=False, timestep_spacing="trailing")
     # ddim_scheduler.set_timesteps(num_inference_steps=50)
 
+    alpha = 2.0
+    
     start_time = time.perf_counter()
-    with torch.no_grad():
-        # Start from random Gaussian noise
-        sample = torch.randn((n_samples, example_model.n_channels, seq_length), device=device)
-        # scheduler.timesteps is an iterable of timesteps in descending order
-        for t in example_model.scheduler.timesteps:
-            # for t in ddim_scheduler.timesteps:
-            
+    
+    # Start from random Gaussian noise
+    sample = torch.randn((n_samples, example_model.n_channels, seq_length), device=device, requires_grad=True)
+    
+    # scheduler.timesteps is an iterable of timesteps in descending order
+    for t in example_model.scheduler.timesteps:
+        # Compute gradient of cost w.r.t sample and add to sample to encourage low cost
+        grad_J = dJ_dx(sample.detach().clone().requires_grad_(True))
+        sample = sample - alpha * grad_J
+    
+        with torch.no_grad():
             conditioning_normalized = example_model.train_data_stats.normalize_data(
-                torch.tensor([-3.5, 0.0], device=device).view(1, example_model.n_channels, 1)
+                torch.tensor([2.0, 0.0], device=device).view(1, example_model.n_channels, 1)
             )
             
             sample = example_model.train_data_stats.apply_conditioning(
                 sample,
                 conditioning_normalized
             )
-        
+                    
             # For each diffusion step, create a batch of the current timestep
             t_batch = torch.full((n_samples,), t, device=device, dtype=torch.long)
             
