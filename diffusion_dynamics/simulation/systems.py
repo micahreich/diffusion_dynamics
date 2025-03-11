@@ -77,39 +77,57 @@ class DynamicalSystem:
         else:
             return np.array(x_interp), np.array(u_interp)
 
-    def M(self, q) -> torch.Tensor:
+    def M(self, q: torch.Tensor) -> torch.Tensor:
         raise NotImplementedError
 
-    def C(self, q, q_dot) -> torch.Tensor:
+    def C(self, q: torch.Tensor, q_dot: torch.Tensor) -> torch.Tensor:
         raise NotImplementedError
 
-    def G(self, q) -> torch.Tensor:
+    def G(self, q: torch.Tensor) -> torch.Tensor:
         raise NotImplementedError
 
     def B(self) -> torch.Tensor:
         raise NotImplementedError
 
     def continuous_dynamics(self, x: torch.Tensor, u: torch.Tensor) -> torch.Tensor:
-        q = x[: self.nxx]
-        q_dot = x[self.nxx :]
+        assert x.ndim == 1
+        assert u.ndim == 1
 
+        out = self.batch_continuous_dynamics(x.unsqueeze(0), u.unsqueeze(0))
+        return out.view(-1)
+    
+    def batch_continuous_dynamics(self, x: torch.Tensor, u: torch.Tensor) -> torch.Tensor:
+        assert x.ndim == 2
+        assert u.ndim == 2
+        
+        Bx, nx = x.shape
+        Bu, nu = u.shape
+        
+        assert Bx == Bu
+        assert nx == self.nx
+        assert nu == self.nu
+        
+        q = x[:, :self.nxx]
+        qdot = x[:, self.nxx:]
+        
         M = self.M(q)
-        C = self.C(q, q_dot)
+        C = self.C(q, qdot)
         G = self.G(q)
         B = self.B()
+        batched_B = B.unsqueeze(0).expand(Bx, -1, -1)
 
-        assert C.shape == M.shape == (self.nxx, self.nxx)
-        assert G.shape == (self.nxx,)
+        assert M.shape == (Bx, self.nxx, self.nxx)
+        assert C.shape == (Bx, self.nxx, self.nxx)
+        assert G.shape == (Bx, self.nxx)
         assert B.shape == (self.nxx, self.nu)
-
-        q_ddot = torch.linalg.solve(M, (B @ u - C @ q_dot + G))
-
-        x_dot = torch.concat([q_dot, q_ddot])
-
-        assert x_dot.shape == x.shape
-
-        return x_dot
-
+        assert batched_B.shape == (Bx, self.nxx, self.nu)
+        
+        qddot = torch.linalg.solve(
+            M,
+            (batched_B @ u.unsqueeze(-1) - C @ qdot.unsqueeze(-1) + G.unsqueeze(-1))
+        ).squeeze(-1)
+        
+        return torch.hstack([qdot, qddot])
 
 # Pendulum system
 
@@ -126,17 +144,23 @@ class Pendulum(DynamicalSystem):
         self.g = 9.81
         super().__init__("Pendulum", params, nx=2, nu=1)
 
-    def M(self, q) -> torch.Tensor:
+    def M(self, q: torch.Tensor) -> torch.Tensor:
+        N, _ = q.shape
+        
         m, l = self.params.m, self.params.l
-        return torch.Tensor([m * l**2]).view(self.nxx, self.nxx)
+        return torch.Tensor([m * l**2]).view(self.nxx, self.nxx).repeat(N, 1, 1)
 
-    def C(self, q, q_dot) -> torch.Tensor:
+    def C(self, q: torch.Tensor, q_dot: torch.Tensor) -> torch.Tensor:
+        N, _ = q.shape
+        
         b = self.params.b
-        return torch.Tensor([b]).view(self.nxx, self.nxx)
+        return torch.Tensor([b]).view(self.nxx, self.nxx).repeat(N, 1, 1)
 
-    def G(self, q) -> torch.Tensor:
+    def G(self, q: torch.Tensor) -> torch.Tensor:
+        N, _ = q.shape
+        
         m, l, g = self.params.m, self.params.l, self.g
-        return -torch.Tensor([m * g * l * torch.sin(q[0])])
+        return -(m * g * l * torch.sin(q[:, 0])).view(N, self.nxx)
 
     def B(self) -> torch.Tensor:
         return torch.Tensor([1.0]).view(self.nxx, self.nu)
@@ -158,19 +182,42 @@ class PendulumRenderElement(RenderElement):
 
 
 if __name__ == "__main__":
-    x0 = torch.Tensor([np.pi, 0.0])
-    u0 = torch.Tensor([0.0])
+    # Bx, nx, nu = 10, 2, 1
+    # nxx = nx//2  
+    
+    # M = torch.randn(Bx, nxx, nxx)
+    # C = torch.randn(Bx, nxx, nxx)
+    # G = torch.randn(Bx, nxx)
+    # B = torch.randn(Bx, nxx, nu)
+    
+    # q = torch.randn(Bx, nxx)
+    # qdot = torch.randn(Bx, nxx)
+    # u = torch.randn(Bx, nu)
+    
+    # qddot = torch.linalg.solve(
+    #     M,
+    #     (B @ u.unsqueeze(-1) - C @ qdot.unsqueeze(-1) + G.unsqueeze(-1))
+    # ).squeeze(-1)
+    
+    # xdot = torch.hstack([qdot, qddot])
+    
+    # print("qddot", qddot.shape)
+    # print("xdot", xdot.shape)
+    
+    batch_size = 10_000
+    x0 = torch.Tensor([torch.pi, 0.0]).view(1, -1).repeat(batch_size, 1)
+    u0 = torch.Tensor([0.0]).view(1, -1).repeat(batch_size, 1)
 
     pend = Pendulum(params=PendulumParams(m=1.0, l=1.0, b=0.5))
-    xdot = pend.continuous_dynamics(x=x0, u=u0)
+    xdot = pend.batch_continuous_dynamics(x=x0, u=u0)
 
-    print(x0, u0, xdot)
+    print(xdot[:4])
     print(x0.shape, u0.shape, xdot.shape)
 
-    df_dx, df_du = torch.autograd.functional.jacobian(
-        pend.continuous_dynamics,
-        (x0, u0),
-    )
+    # df_dx, df_du = torch.autograd.functional.jacobian(
+    #     pend.continuous_dynamics,
+    #     (x0, u0),
+    # )
 
-    print(f"df_dx ({df_dx.shape}): {df_dx}")
-    print(f"df_du ({df_du.shape}): {df_du}")
+    # print(f"df_dx ({df_dx.shape}): {df_dx}")
+    # print(f"df_du ({df_du.shape}): {df_du}")

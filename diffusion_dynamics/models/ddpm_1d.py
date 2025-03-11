@@ -167,7 +167,7 @@ class UNet1DModel:
         self.unet.train()
 
         optimizer = torch.optim.Adam(self.unet.parameters(), lr=learning_rate)
-        lr_scheduler = ReduceLROnPlateau(optimizer, mode='min', factor=0.1, patience=8, verbose=True)
+        lr_scheduler = ReduceLROnPlateau(optimizer, mode='min', factor=0.5, patience=8, verbose=True)
         
         try:
             for epoch in range(n_epochs):

@@ -66,6 +66,8 @@ EXPOSE 8888
 
 USER ${HOST_USER}
 
+RUN git config --global --add safe.directory /workspace
+
 # Set default command to keep the container running
 CMD ["bash"]
 

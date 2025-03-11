@@ -56,13 +56,13 @@ if __name__ == '__main__':
     
     # scheduler.timesteps is an iterable of timesteps in descending order
     for t in example_model.scheduler.timesteps:
-        # Compute gradient of cost w.r.t sample and add to sample to encourage low cost
-        grad_J = dJ_dx(sample.detach().clone().requires_grad_(True))
-        sample = sample - alpha * grad_J
+        # # Compute gradient of cost w.r.t sample and add to sample to encourage low cost
+        # grad_J = dJ_dx(sample.detach().clone().requires_grad_(True))
+        # sample = sample - alpha * grad_J
     
         with torch.no_grad():
             conditioning_normalized = example_model.train_data_stats.normalize_data(
-                torch.tensor([2.0, 0.0], device=device).view(1, example_model.n_channels, 1)
+                torch.tensor([7.0, 0.0], device=device).view(1, example_model.n_channels, 1)
             )
             
             sample = example_model.train_data_stats.apply_conditioning(
