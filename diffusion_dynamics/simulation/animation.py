@@ -20,18 +20,16 @@ def interp_x_u_history(ts, xs, us, ts_query):
     return ts_query, x_query, u_query
 
 
-class RenderEnvironment:
+class PlotEnvironment:
     def __init__(self, fig, ax):
         self.fig = fig
         self.ax = ax
         self.elements = []
 
-    def add_element(self, element, *args, **kwargs):
-        self.elements.append(element(self, *args, **kwargs))
+    def add_element(self, element: "PlotElement"):
+        self.elements.append(element)
 
     def render(self, t_range, fps=30, repeat=True, save_fpath=None):
-        import matplotlib.animation as animation
-
         n_frames = int(fps * (t_range[1] - t_range[0]))
         actual_fps = int(n_frames / (t_range[1] - t_range[0]))
 
@@ -61,9 +59,9 @@ class RenderEnvironment:
         return ani
 
 
-class RenderElement:
-    def __init__(self, env: RenderEnvironment) -> None:
+class PlotElement:
+    def __init__(self, env: PlotEnvironment) -> None:
         self.env = env
 
-    def update(self, t, x, u):
+    def update(self, t, x, u) -> None:
         raise NotImplementedError

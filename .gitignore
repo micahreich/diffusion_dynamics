@@ -178,3 +178,4 @@ cython_debug/
 **/*.npy
 **/*.pkl
 diffusion_dynamics/models/saved_models/
+diffusion_dynamics/random

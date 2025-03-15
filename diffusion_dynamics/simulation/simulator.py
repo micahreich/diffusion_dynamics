@@ -1,9 +1,11 @@
-import numpy as np
-from typing import Any, Tuple, Callable
-from scipy.linalg import block_diag
-from dataclasses import dataclass
-from diffusion_dynamics.simulation.systems import DynamicalSystem
 import torch
+import numpy as np
+from systems import DynamicalSystem
+from typing import Any, Tuple, Callable
+from diffusion_dynamics.utils import torch_to_numpy, numpy_to_torch
+from diffusion_dynamics.simulation.animation import PlotElement, PlotEnvironment
+from scipy.linalg import solve_continuous_are
+import time
 
 
 def rk4_step(f: Callable, x: torch.Tensor, u: torch.Tensor, dt: float) -> torch.Tensor:
@@ -14,117 +16,119 @@ def rk4_step(f: Callable, x: torch.Tensor, u: torch.Tensor, dt: float) -> torch.
 
     return x + dt / 6 * (k1 + 2 * k2 + 2 * k3 + k4)
 
-def simulate_batch_dynamical_system(
-    sys: DynamicalSystem,
-    tf: float,
-    x0: torch.Tensor,
-    u: Callable,
-    dt: float = 1e-2
-): 
-    assert x0.ndim == 2, "Initial states must have shape (batch_size, nx)"
-    assert u(torch.tensor(0.0), x0).shape == (x0.shape[0], sys.nu), "Control function must return a 2D tensor of shape (batch_size, nu)"
 
-    batch_size, _ = x0.shape
+def simulate_batch(sys: DynamicalSystem,
+                   tf: float,
+                   dt: float,
+                   u: Callable,
+                   x0: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+    N, nx = x0.shape
     
-    ts = torch.arange(0, tf, dt)
-    tf = torch.tensor([tf], dtype=ts.dtype)
-
-    if torch.allclose(ts[-1], tf):
-        ts = ts[:-1]
+    assert nx == sys.nx, "Initial states must have shape (N, nx)"
+    assert u(0.0, x0).shape == (N, sys.nu), "Control function must return a tensor of shape (N, nu)"
+    # assert type(term_cond(0.0, x0) == bool)
     
-    X_history = torch.empty(batch_size, len(ts)+1, sys.nx)
-    U_history = torch.empty(batch_size, len(ts), sys.nu)
-    
-    X_history[:, 0, :] = x0
-    
-    for i, t in enumerate(ts):
-        U_history[:, i, :] = u(t, X_history[:, i, :])
-        X_history[:, i + 1, :] = rk4_step(sys.batch_continuous_dynamics, X_history[:, i, :], U_history[:, i, :], dt)
-    
-    return ts, X_history, U_history
+    ts = torch.arange(0, tf + dt, dt)
         
-        
-def simulate_dynamical_system(
-    sys: DynamicalSystem,
-    tf: float,
-    x0: torch.Tensor,
-    u: Callable,
-    dt: float = 1e-2,
-    log_data=True,
-) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
-    assert x0.shape[0] == sys.nx, "Initial states must have shape (nx,)"
-    assert u(torch.tensor(tf), x0).shape == (sys.nu,), "Control function must return a 1D tensor of shape (nu,)"
+    x_hist = torch.zeros(N, len(ts), nx)
+    u_hist = torch.zeros(N, len(ts) - 1, sys.nu)
+    # term_idx_hist = torch.zeros(N, len(ts))
+    
+    # term_cond(0.0, x0)
+    
+    x_hist[:, 0, :] = x0
+    
+    for i, t in enumerate(ts[1:]):
+        u_hist[:, i, :] = u(t, x_hist[:, i, :])
+        x_hist[:, i + 1, :] = rk4_step(sys.batch_dynamics, x_hist[:, i, :], u_hist[:, i, :], dt)
+    
+    return ts, x_hist, u_hist
 
-    if log_data:
-        sys.clear_history()
-
-    ts = torch.arange(0, tf, dt)
-    tf = torch.tensor([tf], dtype=ts.dtype)
-
-    if tf - ts[-1] > 10 * torch.finfo(ts.dtype).eps:
-        ts = torch.cat([ts, tf])
-
-    X_history = torch.empty((len(ts), sys.nx))
-    U_history = torch.empty((len(ts) - 1, sys.nu))
-
-    # Set initial state
-    X_history[0] = x0
-
-    for i, t in enumerate(ts[:-1]):
-        dt = ts[i + 1] - t
-
-        U_history[i] = u(t, X_history[i])
-        X_history[i + 1] = rk4_step(sys.continuous_dynamics, X_history[i], U_history[i], dt)
-
-    if log_data:
-        sys.set_history(ts, X_history, U_history)
-
-    return ts, X_history, U_history
-
+def simulate(sys: DynamicalSystem,
+             tf: float,
+             dt: float,
+             u: Callable,
+             x0: torch.Tensor,
+             log: bool = True) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+    
+    u_modified = lambda t, x: u(t, x.squeeze(0)).unsqueeze(0)
+    ts, x_hist, u_hist = simulate_batch(sys, tf, dt, u_modified, x0.unsqueeze(0))
+    
+    if log:
+        sys.set_history(ts, x_hist.squeeze(0), u_hist.squeeze(0))
+    
+    return ts, x_hist.squeeze(0), u_hist.squeeze(0)
 
 if __name__ == "__main__":
-    from systems import Pendulum, PendulumParams, PendulumRenderElement
-    from animation import RenderEnvironment
+    from systems import CartPole
     import matplotlib.pyplot as plt
-    import time
     
-    sys = Pendulum(PendulumParams(m=1, l=1, b=1.0))
+    print("Simulating 1 CartPole with LQR control")
     
-    batch_size = 10_000
-    x0 = torch.randn(batch_size, sys.nx)
-    u = lambda t, x: torch.zeros(batch_size, sys.nu)
+    cart_pole = CartPole(params=CartPole.Params(1, 1, 1, 9.81))
     
-    start_time = time.perf_counter()
+    # Compute LQR gain matrix K
+    xbar = torch.tensor([1.0, torch.pi, 0, 0], dtype=torch.float32)
+    ubar = torch.tensor([0.], dtype=torch.float32)
     
-    ts, xs, us = simulate_batch_dynamical_system(sys=sys, tf=10.0, x0=x0, u=u, dt=0.03)
+    A = torch_to_numpy(torch.autograd.functional.jacobian(lambda _x : cart_pole.dynamics(_x, ubar), xbar))
+    B = torch_to_numpy(torch.autograd.functional.jacobian(lambda _u : cart_pole.dynamics(xbar, _u), ubar))
+    Q = np.eye(4)
+    R = 0.1 * np.eye(1)
+    P = solve_continuous_are(A, B, Q, R)
     
-    print(f"Time taken for N={batch_size}: {time.perf_counter() - start_time:.3f} seconds")
+    K = numpy_to_torch(np.linalg.inv(R) @ B.T @ P)
     
-    sys.set_history(
-        ts=ts,
-        xs=xs[5, :, :],
-        us=us[5, :, :],
-    )
-
-    # x0 = torch.tensor([np.pi / 2, 10])
-    # u = lambda t, x: torch.tensor([0])
-
-    # sys = Pendulum(PendulumParams(m=1, l=1, b=1.0))
-
-    # ts, xs, us = simulate_dynamical_system(sys=sys, tf=10.0, x0=x0, u=u, dt=0.03, log_data=True)
-
+    # Simulate cartpole for 5 seconds
+    x0 = torch.tensor([0, torch.pi - 0.4, 0, 0], dtype=torch.float32)
+    u = lambda t, x: ubar - K @ (x - xbar)
+    
+    ts, x_hist, u_hist = torch_to_numpy(*simulate(cart_pole, 5.0, 0.02, u, x0, log=True)) 
+    
+    # Plot states and control
+    fig, ax = plt.subplots(2, 1, figsize=(10, 5))
+    ax[0].plot(ts, x_hist[:, 0], label=r"x", color="blue")
+    ax[0].plot(ts, x_hist[:, 2], label=r"\dot{x}", color="blue", alpha=0.6)
+    ax[0].plot(ts, x_hist[:, 1], label=r"\theta", color="red")
+    ax[0].plot(ts, x_hist[:, 3], label=r"\dot{\theta}", color="red", alpha=0.6)
+    
+    
+    ax[0].set_ylabel("States")
+    ax[0].legend()
+    
+    ax[1].plot(ts[:-1], u_hist, label="u", color="purple")
+    ax[1].set_ylabel("Control")
+    ax[1].legend()
+    
+    plt.show()
+    
+    # Render the simulation
     fig, ax = plt.subplots(figsize=(5, 5))
     ax.grid(True)
     ax.set_aspect('equal')
-    ax.set_xlim(-2, 2)
-    ax.set_ylim(-2, 2)
 
-    env = RenderEnvironment(fig, ax)
-    env.add_element(PendulumRenderElement, sys)
+    env = PlotEnvironment(fig, ax)
+    env.add_element(CartPole.PlotElement(env, cart_pole))
     _ = env.render(
-        t_range=(0, 10),
-        fps=30,
-        # save_fpath="/workspace/diffusion_dynamics/simulation/pendulum.mp4",
+        t_range=(0, 5),
+        fps=30
     )
     
     plt.show()
+    
+    N = 10_000
+    print(f"Simulating {N} CartPoles with LQR control...")
+    
+    start = time.perf_counter()
+    x0 = torch.tile(x0, dims=(N, 1))
+    u = lambda t, x: ubar - (K @ (x - xbar).T).T
+        
+    ts_batch, x_hist_batch, u_hist_batch = simulate_batch(cart_pole, 5.0, 0.02, u, x0)
+    
+    print(f"Time taken for {N} CartPoles: {time.perf_counter() - start : .3f}s",)
+    
+    # Verify each trajectory is correct
+    i = torch.randint(0, N, (1,))
+
+    assert np.allclose(x_hist, torch_to_numpy(x_hist_batch[i].squeeze(1)))
+    assert np.allclose(u_hist, torch_to_numpy(u_hist_batch[i].squeeze(1)))

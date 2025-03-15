@@ -1,27 +1,28 @@
 import numpy as np
-
-# import jax.numpy as np
-import jax
-from typing import Any, Tuple
-from scipy.linalg import block_diag
-from dataclasses import dataclass
-from diffusion_dynamics.utils import unpack_state
-from diffusion_dynamics.simulation.animation import RenderEnvironment, RenderElement
 import torch
-
-# Base dynamical system class
+from typing import Optional, Any, Tuple
+from dataclasses import dataclass
+from scipy.linalg import solve_continuous_are
+from diffusion_dynamics.utils import torch_to_numpy
+from diffusion_dynamics.simulation.animation import PlotElement, PlotEnvironment
+import matplotlib.pyplot as plt
 
 
 class DynamicalSystem:
-    def __init__(self, name: str, params: Any, nx: int, nu: int) -> None:
+    def __init__(self, nx: int, nu: int, name: Optional[str] = None, params: Optional[Any] = None) -> None:
+        self.nx = nx
+        self.nu = nu
         self.name = name
         self.params = params
-        self.nx = nx
-        self.nxx = self.nx // 2
-        self.nu = nu
-
+        
         self.t_history = self.x_history = self.u_history = None
-
+    
+    def batch_dynamics(self, x: torch.Tensor, u: torch.Tensor) -> torch.Tensor:
+        raise NotImplementedError
+    
+    def dynamics(self, x: torch.Tensor, u: torch.Tensor) -> torch.Tensor:
+        return self.batch_dynamics(x.unsqueeze(0), u.unsqueeze(0)).squeeze(0)
+    
     def clear_history(self) -> None:
         self.t_history = self.x_history = self.u_history = None
 
@@ -30,24 +31,14 @@ class DynamicalSystem:
         self.x_history = xs
         self.u_history = us
 
-    def get_history(self, dtype="torch") -> Any:
-        assert dtype in ["torch", "numpy"], "Type must be 'torch' or 'numpy'"
+    def get_history(self) -> Any:
+        return (
+            torch.as_tensor(self.t_history),
+            torch.as_tensor(self.x_history),
+            torch.as_tensor(self.u_history),
+        )
 
-        if dtype == "torch":
-            return (
-                torch.tensor(self.t_history),
-                torch.tensor(self.x_history),
-                torch.tensor(self.u_history),
-            )
-        else:
-            return (
-                np.array(self.t_history),
-                np.array(self.x_history),
-                np.array(self.u_history),
-            )
-
-    def query_history(self, t: float, dtype="torch") -> Tuple:
-        assert dtype in ["torch", "numpy"], "Type must be 'torch' or 'numpy'"
+    def query_history(self, t: float) -> Tuple:
         assert self.t_history is not None, "No time history to query"
 
         # Clamp t to the range of the time history
@@ -72,152 +63,98 @@ class DynamicalSystem:
 
         u_interp = alpha_lo * self.u_history[idx_lo] + alpha_hi * self.u_history[idx_hi]
 
-        if dtype == "torch":
-            return torch.tensor(x_interp), torch.tensor(u_interp)
-        else:
-            return np.array(x_interp), np.array(u_interp)
+        return torch.as_tensor(x_interp), torch.as_tensor(u_interp)
 
-    def M(self, q: torch.Tensor) -> torch.Tensor:
-        raise NotImplementedError
-
-    def C(self, q: torch.Tensor, q_dot: torch.Tensor) -> torch.Tensor:
-        raise NotImplementedError
-
-    def G(self, q: torch.Tensor) -> torch.Tensor:
-        raise NotImplementedError
-
-    def B(self) -> torch.Tensor:
-        raise NotImplementedError
-
-    def continuous_dynamics(self, x: torch.Tensor, u: torch.Tensor) -> torch.Tensor:
-        assert x.ndim == 1
-        assert u.ndim == 1
-
-        out = self.batch_continuous_dynamics(x.unsqueeze(0), u.unsqueeze(0))
-        return out.view(-1)
+class CartPole(DynamicalSystem):
+    @dataclass
+    class Params:
+        m_c: float
+        m_p: float
+        l: float
+        g: float
     
-    def batch_continuous_dynamics(self, x: torch.Tensor, u: torch.Tensor) -> torch.Tensor:
-        assert x.ndim == 2
-        assert u.ndim == 2
+    class PlotElement(PlotElement):
+        def __init__(self, env: PlotEnvironment, sys: "CartPole") -> None:
+            super().__init__(env)
+
+            self.sys = sys
+            
+            self.cart_width, self.cart_height = 0.4, 0.2
+            
+            self.cart = self.env.ax.add_patch(plt.Rectangle((-self.cart_width/2, -self.cart_height/2), self.cart_width, self.cart_height, fc="blue"))  # Cart
+            (self.rod,) = self.env.ax.plot([], [], 'o-', lw=2, markersize=5, c='black', markerfacecolor='gray')  # Pole
+            
+            x_lo, x_hi = sys.x_history[:, 0].min(), sys.x_history[:, 0].max()
+            new_range = (x_hi - x_lo + self.cart_width) * 1.2
+            
+            x_lo = (x_lo + x_hi) / 2 - new_range / 2
+            x_hi = (x_lo + x_hi) / 2 + new_range / 2
+            
+            self.env.ax.set_xlim(x_lo, x_hi)
+            self.env.ax.set_ylim(-sys.params.l * 1.2, sys.params.l * 1.2)
+
+        def update(self, t):
+            state, _ = self.sys.query_history(t)  # Get the current state of the cartpole
+            x, theta = state[0], state[1]  # Extract cart position and pole angle
+            
+            # Compute the pole's end position
+            l = self.sys.params.l
+            pole_x = x + l * np.sin(theta)
+            pole_y = -l * np.cos(theta)
+
+            # Update cart position
+            self.cart.set_xy((x - 0.2, -0.1))  # Adjusted for cart size
+            
+            # Update pole position
+            self.rod.set_data([x, pole_x], [0, pole_y])
+    
+    def __init__(self, params: Params) -> None:
+        super().__init__(4, 1, "CartPole", params)
+    
+    def batch_dynamics(self, x: torch.Tensor, u: torch.Tensor) -> torch.Tensor:
+        N1, nx = x.shape
+        N2, nu = u.shape
         
-        Bx, nx = x.shape
-        Bu, nu = u.shape
-        
-        assert Bx == Bu
         assert nx == self.nx
         assert nu == self.nu
+        assert N1 == N2
         
-        q = x[:, :self.nxx]
-        qdot = x[:, self.nxx:]
+        _, theta, v, theta_dot = x.T.unsqueeze(-1)
+                
+        x_ddot = 1/(self.params.m_c + self.params.m_p * torch.sin(theta)**2) * (
+            u + self.params.m_p * torch.sin(theta) * (self.params.l * theta_dot**2 + self.params.g * torch.cos(theta))
+        )
         
-        M = self.M(q)
-        C = self.C(q, qdot)
-        G = self.G(q)
-        B = self.B()
-        batched_B = B.unsqueeze(0).expand(Bx, -1, -1)
-
-        assert M.shape == (Bx, self.nxx, self.nxx)
-        assert C.shape == (Bx, self.nxx, self.nxx)
-        assert G.shape == (Bx, self.nxx)
-        assert B.shape == (self.nxx, self.nu)
-        assert batched_B.shape == (Bx, self.nxx, self.nu)
+        theta_ddot = 1/(self.params.l * (self.params.m_c + self.params.m_p * torch.sin(theta)**2)) * (
+            -u * torch.cos(theta) - self.params.m_p * self.params.l * theta_dot**2 * torch.cos(theta) * torch.sin(theta) - (self.params.m_c + self.params.m_p) * self.params.g * torch.sin(theta)
+        )
         
-        qddot = torch.linalg.solve(
-            M,
-            (batched_B @ u.unsqueeze(-1) - C @ qdot.unsqueeze(-1) + G.unsqueeze(-1))
-        ).squeeze(-1)
-        
-        return torch.hstack([qdot, qddot])
-
-# Pendulum system
-
-
-@dataclass
-class PendulumParams:
-    m: float
-    l: float
-    b: float
-
-
-class Pendulum(DynamicalSystem):
-    def __init__(self, params: Any) -> None:
-        self.g = 9.81
-        super().__init__("Pendulum", params, nx=2, nu=1)
-
-    def M(self, q: torch.Tensor) -> torch.Tensor:
-        N, _ = q.shape
-        
-        m, l = self.params.m, self.params.l
-        return torch.Tensor([m * l**2]).view(self.nxx, self.nxx).repeat(N, 1, 1)
-
-    def C(self, q: torch.Tensor, q_dot: torch.Tensor) -> torch.Tensor:
-        N, _ = q.shape
-        
-        b = self.params.b
-        return torch.Tensor([b]).view(self.nxx, self.nxx).repeat(N, 1, 1)
-
-    def G(self, q: torch.Tensor) -> torch.Tensor:
-        N, _ = q.shape
-        
-        m, l, g = self.params.m, self.params.l, self.g
-        return -(m * g * l * torch.sin(q[:, 0])).view(N, self.nxx)
-
-    def B(self) -> torch.Tensor:
-        return torch.Tensor([1.0]).view(self.nxx, self.nu)
-
-
-class PendulumRenderElement(RenderElement):
-    def __init__(self, env: RenderEnvironment, sys: Pendulum) -> None:
-        super().__init__(env)
-
-        self.sys = sys
-        (self.rod,) = self.env.ax.plot([], [], 'o-', lw=2, markersize=5, c='black', markerfacecolor='gray')
-
-    def update(self, t):
-        x, _ = self.sys.query_history(t, dtype='numpy')
-
-        xx, yy = np.cos(x[0] - np.pi / 2), np.sin(x[0] - np.pi / 2)
-
-        self.rod.set_data([0, xx], [0, yy])  # Update rod
-
+        return torch.column_stack([v, theta_dot, x_ddot, theta_ddot])
 
 if __name__ == "__main__":
-    # Bx, nx, nu = 10, 2, 1
-    # nxx = nx//2  
+    cart_pole = CartPole(params=CartPole.Params(1, 1, 1, 9.81))
     
-    # M = torch.randn(Bx, nxx, nxx)
-    # C = torch.randn(Bx, nxx, nxx)
-    # G = torch.randn(Bx, nxx)
-    # B = torch.randn(Bx, nxx, nu)
+    xbar = torch.tensor([0,torch.pi - 0.4,0,0], dtype=torch.float32)
+    ubar = torch.tensor([24.24184], dtype=torch.float32)
     
-    # q = torch.randn(Bx, nxx)
-    # qdot = torch.randn(Bx, nxx)
-    # u = torch.randn(Bx, nu)
+    print(cart_pole.dynamics(xbar, ubar))
     
-    # qddot = torch.linalg.solve(
-    #     M,
-    #     (B @ u.unsqueeze(-1) - C @ qdot.unsqueeze(-1) + G.unsqueeze(-1))
-    # ).squeeze(-1)
+    xbar = torch.tile(xbar, dims=(5, 1))
+    ubar = torch.tile(ubar, dims=(5, 1))
     
-    # xdot = torch.hstack([qdot, qddot])
+    print(cart_pole.batch_dynamics(xbar, ubar))
     
-    # print("qddot", qddot.shape)
-    # print("xdot", xdot.shape)
+    # ubar = torch.tensor([0.], dtype=torch.float32)
+    # ubar = torch.tile(ubar, dims=(100, 1))
     
-    batch_size = 10_000
-    x0 = torch.Tensor([torch.pi, 0.0]).view(1, -1).repeat(batch_size, 1)
-    u0 = torch.Tensor([0.0]).view(1, -1).repeat(batch_size, 1)
-
-    pend = Pendulum(params=PendulumParams(m=1.0, l=1.0, b=0.5))
-    xdot = pend.batch_continuous_dynamics(x=x0, u=u0)
-
-    print(xdot[:4])
-    print(x0.shape, u0.shape, xdot.shape)
-
-    # df_dx, df_du = torch.autograd.functional.jacobian(
-    #     pend.continuous_dynamics,
-    #     (x0, u0),
-    # )
-
-    # print(f"df_dx ({df_dx.shape}): {df_dx}")
-    # print(f"df_du ({df_du.shape}): {df_du}")
+    # print(cart_pole.batch_dynamics(xbar, ubar))
+    # print(cart_pole.dynamics(xbar, ubar))
+    
+    # A = torch_to_numpy(torch.autograd.functional.jacobian(lambda _x : cart_pole.dynamics(_x, ubar), xbar))
+    # B = torch_to_numpy(torch.autograd.functional.jacobian(lambda _u : cart_pole.dynamics(xbar, _u), ubar))
+    # Q = np.eye(4)
+    # R = np.eye(1)
+    # P = solve_continuous_are(A, B, Q, R)
+    # K = np.linalg.inv(R) @ B.T @ P
+    
+    # print(A.shape, B.shape, K.shape)

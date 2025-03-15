@@ -4,7 +4,10 @@
 
 From the root of the repository, run:
 ```bash
-docker build --network=host -t diffusion_dynamics_image -f Dockerfile .
+docker build \
+--network=host \
+--build-arg HOST_USER=$(whoami) --build-arg HOST_UID=$(id -u) --build-arg HOST_GID=$(id -g) \
+-t diffusion_dynamics_image -f Dockerfile .
 ```
 
 ## Running the Docker Container

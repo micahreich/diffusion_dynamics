@@ -28,5 +28,15 @@ def np_logit(x):
     return np.log(x / (1 - x))
 
 
-def ptu_torch_to_numpy(x):
-    return x.detach().cpu().numpy()
+def torch_to_numpy(*args):
+    return [x.detach().cpu().numpy() for x in args] if len(args) > 1 else args[0].detach().cpu().numpy()
+
+def numpy_to_torch(*args):
+    return [torch.tensor(x, dtype=torch.float32) for x in args] if len(args) > 1 else torch.tensor(args[0], dtype=torch.float32)
+
+if __name__ == "__main__":
+    x = torch.tensor([1, 2, 3], dtype=torch.float32)
+    print(torch_to_numpy(x))
+    print(torch_to_numpy(x, x))
+    print(torch_to_numpy(x, x, x))
+    
