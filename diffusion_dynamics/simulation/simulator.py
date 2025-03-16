@@ -1,7 +1,7 @@
 import torch
 import numpy as np
-from systems import DynamicalSystem
 from typing import Any, Tuple, Callable
+from diffusion_dynamics.simulation.systems import DynamicalSystem
 from diffusion_dynamics.utils import torch_to_numpy, numpy_to_torch
 from diffusion_dynamics.simulation.animation import PlotElement, PlotEnvironment
 from scipy.linalg import solve_continuous_are
@@ -60,7 +60,7 @@ def simulate(sys: DynamicalSystem,
     return ts, x_hist.squeeze(0), u_hist.squeeze(0)
 
 if __name__ == "__main__":
-    from systems import CartPole
+    from diffusion_dynamics.simulation.systems import CartPole
     import matplotlib.pyplot as plt
     
     print("Simulating 1 CartPole with LQR control")
@@ -80,17 +80,17 @@ if __name__ == "__main__":
     K = numpy_to_torch(np.linalg.inv(R) @ B.T @ P)
     
     # Simulate cartpole for 5 seconds
-    x0 = torch.tensor([0, torch.pi - 0.4, 0, 0], dtype=torch.float32)
+    x0 = torch.tensor([0, torch.pi - 0.1, 0.0, 1.0], dtype=torch.float32)
     u = lambda t, x: ubar - K @ (x - xbar)
     
     ts, x_hist, u_hist = torch_to_numpy(*simulate(cart_pole, 5.0, 0.02, u, x0, log=True)) 
     
     # Plot states and control
     fig, ax = plt.subplots(2, 1, figsize=(10, 5))
-    ax[0].plot(ts, x_hist[:, 0], label=r"x", color="blue")
-    ax[0].plot(ts, x_hist[:, 2], label=r"\dot{x}", color="blue", alpha=0.6)
-    ax[0].plot(ts, x_hist[:, 1], label=r"\theta", color="red")
-    ax[0].plot(ts, x_hist[:, 3], label=r"\dot{\theta}", color="red", alpha=0.6)
+    ax[0].plot(ts, x_hist[:, 0], label=r"$x$", color="blue")
+    ax[0].plot(ts, x_hist[:, 2], label=r"$\dot{x}$", color="blue", alpha=0.4)
+    ax[0].plot(ts, x_hist[:, 1], label=r"$\theta$", color="red")
+    ax[0].plot(ts, x_hist[:, 3], label=r"$\dot{\theta}$", color="red", alpha=0.4)
     
     
     ax[0].set_ylabel("States")

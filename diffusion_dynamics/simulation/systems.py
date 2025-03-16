@@ -9,13 +9,22 @@ import matplotlib.pyplot as plt
 
 
 class DynamicalSystem:
-    def __init__(self, nx: int, nu: int, name: Optional[str] = None, params: Optional[Any] = None) -> None:
-        self.nx = nx
-        self.nu = nu
+    nx = None
+    nu = None
+    
+    def __init__(self, name: Optional[str] = None, params: Optional[Any] = None) -> None:
         self.name = name
         self.params = params
         
         self.t_history = self.x_history = self.u_history = None
+    
+    def __init_subclass__(cls, **kwargs):
+        super().__init_subclass__(**kwargs)
+        # Check if the subclass has its own definition of 'a'
+        if cls.nx is DynamicalSystem.nx or cls.nu is DynamicalSystem.nu:
+            raise NotImplementedError(
+                f"Class variable 'nx' and 'nu' must be overridden in {cls.__name__}"
+            )
     
     def batch_dynamics(self, x: torch.Tensor, u: torch.Tensor) -> torch.Tensor:
         raise NotImplementedError
@@ -73,6 +82,9 @@ class CartPole(DynamicalSystem):
         l: float
         g: float
     
+    nx = 4
+    nu = 1
+    
     class PlotElement(PlotElement):
         def __init__(self, env: PlotEnvironment, sys: "CartPole") -> None:
             super().__init__(env)
@@ -109,7 +121,7 @@ class CartPole(DynamicalSystem):
             self.rod.set_data([x, pole_x], [0, pole_y])
     
     def __init__(self, params: Params) -> None:
-        super().__init__(4, 1, "CartPole", params)
+        super().__init__("CartPole", params)
     
     def batch_dynamics(self, x: torch.Tensor, u: torch.Tensor) -> torch.Tensor:
         N1, nx = x.shape

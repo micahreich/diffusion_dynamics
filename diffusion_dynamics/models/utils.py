@@ -9,6 +9,7 @@ import pytz
 from datetime import datetime
 import os
 from tqdm import tqdm
+from typing import Optional
 
 
 # @dataclass
@@ -98,13 +99,26 @@ class TensorDataset1D(Dataset):
         assert self.obs_history_len > 0
         assert self.u_pred_len > 0
         
-        n_before = self.obs_history_len - 1
-        n_after = self.u_pred_len - 1
-        
-        self.T_adjusted = T2 - n_before - n_after
-        self.N = N2
         self.normalized = normalize
+        self.N = N2
+        self.T = T2
+        
+        self.T_adjusted = self._calculate_T_adjusted(self.T, self.obs_history_len, self.u_pred_len)
         self.stats = TensorDataset1DStats(nu, nx, u_pred_len, obs_history_len, N2, normalize)
+     
+    def _calculate_T_adjusted(self, T: int, obs_hist_len: int, u_pred_len: int) -> int:
+        n_before = obs_hist_len - 1
+        n_after = u_pred_len - 1
+        
+        return T - n_before - n_after
+    
+    def set_obs_history_len(self, obs_history_len: int) -> None:
+        self.obs_history_len = obs_history_len
+        self.T_adjusted = self._calculate_T_adjusted(self.T, self.obs_history_len, self.u_pred_len)
+    
+    def set_u_pred_len(self, u_pred_len: int) -> None:
+        self.u_pred_len = u_pred_len
+        self.T_adjusted = self._calculate_T_adjusted(self.T, self.obs_history_len, self.u_pred_len)
      
     def __len__(self):
         return self.N * self.T_adjusted
@@ -126,6 +140,11 @@ class TensorDataset1D(Dataset):
                self.u_hist[sys_idx, u_hist_idx_lo:u_hist_idx_hi, :]
 
 
+@dataclass
+class SaveModelParams:
+    save_full_fpath: str
+    save_model_name: Optional[str]
+
 class ConditionalDiffusionModel:
     def __init__(self, model=None, scheduler=None):
         self.model = model
@@ -142,14 +161,11 @@ class ConditionalDiffusionModel:
         batch_size=64,
         learning_rate=1e-4,
         accumulation_steps=2,
-        save_model_params=None,
+        save_model_params: Optional[SaveModelParams]=None,
     ):
         assert self.model is not None, "model must be instantiated before training"
         assert self.scheduler is not None, "noise scheduler must be instantiated before training"
-
-        if save_model_params is not None:
-            assert "save_fpath" in save_model_params, "model save filepath must be provided"
-
+        
         print(f"Testing {self.model.__class__.__name__} forward pass...")
         
         self.model.eval()
@@ -171,8 +187,7 @@ class ConditionalDiffusionModel:
         u_pred_len, nu = _u.shape
         
         assert u_pred_len == dataset.u_pred_len, "dataset u_pred_len must match the model's expected u_pred_len"
-        assert nu == dataset.nu == self.model.input_dim, "dataset nu must match the model's expected nu"
-
+        
         # Instantiate our 1D UNet diffusion model
         self.model.to(device)
         self.model.train()
@@ -225,27 +240,25 @@ class ConditionalDiffusionModel:
                     return
 
         if save_model_params is not None:
-            self._save_model(save_model_params, dataset)
+            self._save_model(save_model_params)
 
-    def _save_model(self, save_model_params, train_dataset: TensorDataset1D):
-        assert save_model_params is not None, "save_model_params must be provided"
-
+    def _save_model(self, save_model_params: SaveModelParams):
         # Save the trained model weights
-        if "save_model_name" not in save_model_params:
+        if save_model_params.save_model_name is None:
             nyc_tz = pytz.timezone('America/New_York')
             time_str = datetime.now(nyc_tz).strftime("%Y-%m-%d__%H-%M-%S")
-            save_model_params["save_model_name"] = f"model1d_{time_str}"
+            save_model_params.save_model_name = f"diffusion1d_{time_str}"
 
-        save_fpath_full = os.path.join(save_model_params["save_fpath"], save_model_params["save_model_name"])
+        save_fpath_full = os.path.join(save_model_params.save_full_fpath, save_model_params.save_model_name)
         print(f"Saving model to {save_fpath_full}...")
         
         os.makedirs(save_fpath_full, exist_ok=True)
         torch.save(self.model.state_dict(), os.path.join(save_fpath_full, "model.pt"))
 
     @classmethod
-    def load_trained_model(cls, saved_model_fpath):
+    def load_trained_model(cls, saved_model_dir_fpath: str):
         device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-        state_dict = torch.load(os.path.join(saved_model_fpath, "model.pt"), map_location=device)
+        state_dict = torch.load(os.path.join(saved_model_dir_fpath, "model.pt"), map_location=device)
 
         m = cls()
         assert m.model is not None, "model must be instantiated before loading a trained model"
@@ -277,6 +290,7 @@ class ConditionalDiffusionModel:
         
         return sample
 
+
 if __name__ == "__main__":
     xhist = torch.tile(torch.arange(0, 10).unsqueeze(1), (1, 7)).unsqueeze(0)
     uhist = torch.tile(torch.arange(0, 9).unsqueeze(1), (1, 5)).unsqueeze(0)
@@ -289,4 +303,4 @@ if __name__ == "__main__":
     for batch in dataloader:
         print(batch)
         print("0:", batch[0].shape)  # Each 'batch' is a tensor containing batch_size items
-        print("1:", batch[1].shape)  # Each 'batch' is a tensor containing batch_size items
+        print("1:", batch[1].shape)
