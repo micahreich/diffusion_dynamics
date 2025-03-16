@@ -52,7 +52,7 @@ if __name__ == "__main__":
         accumulation_steps=1,
         save_model_params=SaveModelParams(
             save_full_fpath="/workspace/diffusion_dynamics/experiments/cartpole",
-            save_model_name="cartpole_diffusion_policy.pt",
+            save_model_name="cartpole_diffusion_policy",
         )
     )
     

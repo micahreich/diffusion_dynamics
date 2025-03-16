@@ -51,9 +51,8 @@ if __name__ == "__main__":
     print(f"Time taken for {N} CartPoles: {time.perf_counter() - start : .3f}s")
     
     dataset = TensorDataset1D(x_hist=x_hist_batch,
-                              u_hist=u_hist_batch,
-                              obs_history_len=1,
-                              u_pred_len=1)
+                              u_hist=u_hist_batch)
+    
     dirname = os.path.dirname(os.path.abspath(__file__))
     torch.save(dataset, f"{dirname}/cartpole_lqr_data.pt")
     
