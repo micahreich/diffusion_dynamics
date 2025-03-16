@@ -133,22 +133,22 @@ class ConditionalMLP(nn.Module):
             nn.Linear(self.time_embed_dim * 4, self.time_embed_dim)
         )
         
-        # The conditioning will be the concatenation of the time embedding and the external condition.        
-        if not use_film_conditioning:
-            self.cond_mlp = nn.Sequential(
-                nn.Linear(cond_dim, self.cond_embed_dim),
-                nn.Mish(),
-                nn.Linear(self.cond_embed_dim, self.cond_embed_dim)
-            )
+        # # The conditioning will be the concatenation of the time embedding and the external condition.        
+        # if not use_film_conditioning:
+        #     self.cond_mlp = nn.Sequential(
+        #         nn.Linear(cond_dim, self.cond_embed_dim),
+        #         nn.Mish(),
+        #         nn.Linear(self.cond_embed_dim, self.cond_embed_dim)
+        #     )
             
-            input_total_dim = input_dim + self.cond_embed_dim
-        else:
-            cond_total_dim = cond_dim + self.time_embed_dim
-            input_total_dim = input_dim
+        #     input_total_dim = input_dim + self.cond_embed_dim
+        # else:
+        #     input_total_dim = input_dim
+        cond_total_dim = cond_dim + self.time_embed_dim
 
             
         # Project input into the hidden dimension.
-        self.input_fc = nn.Linear(input_total_dim, hidden_dim)
+        self.input_fc = nn.Linear(input_dim, hidden_dim)
 
         # Create a stack of conditional residual blocks.
         self.blocks = nn.ModuleList([
@@ -157,12 +157,13 @@ class ConditionalMLP(nn.Module):
                 out_features=hidden_dim,
                 cond_dim=cond_total_dim,
                 cond_predict_scale=cond_predict_scale,
-            ) if use_film_conditioning else \
-            ResidualBlockMLP(
-                in_features=hidden_dim,
-                out_features=hidden_dim
             )
-            for _ in range(n_blocks)
+            # if use_film_conditioning else \
+            # ResidualBlockMLP(
+            #     in_features=hidden_dim,
+            #     out_features=hidden_dim
+            # )
+            # for _ in range(n_blocks)
         ])
 
         # Final projection back to input dimension.
@@ -204,7 +205,6 @@ class ConditionalMLP(nn.Module):
         return out
 
 
-# Example usage:
 if __name__ == '__main__':
     from diffusers.schedulers import DDPMScheduler
     import matplotlib.pyplot as plt
