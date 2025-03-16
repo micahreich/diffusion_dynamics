@@ -25,9 +25,25 @@ class PlotEnvironment:
         self.fig = fig
         self.ax = ax
         self.elements = []
+        
+        self.xlo, self.xhi = float('inf'), float('-inf')
+        self.ylo, self.yhi = float('inf'), float('-inf')
+        self.zlo, self.zhi = float('inf'), float('-inf')
 
     def add_element(self, element: "PlotElement"):
         self.elements.append(element)
+        
+    def set_xlim(self, xlo, xhi):
+        self.xlo = min(xlo, self.xlo)
+        self.xhi = max(xhi, self.xhi)
+        
+        self.ax.set_xlim(self.xlo, self.xhi)
+    
+    def set_ylim(self, ylo, yhi):
+        self.ylo = min(ylo, self.ylo)
+        self.yhi = max(yhi, self.yhi)
+        
+        self.ax.set_ylim(self.ylo, self.yhi)
 
     def render(self, t_range, fps=30, repeat=True, save_fpath=None):
         n_frames = int(fps * (t_range[1] - t_range[0]))

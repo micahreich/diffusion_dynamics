@@ -6,6 +6,7 @@ from diffusion_dynamics.utils import torch_to_numpy, numpy_to_torch
 from diffusion_dynamics.simulation.animation import PlotElement, PlotEnvironment
 from scipy.linalg import solve_continuous_are
 import time
+from tqdm import tqdm
 
 
 def rk4_step(f: Callable, x: torch.Tensor, u: torch.Tensor, dt: float) -> torch.Tensor:
@@ -21,26 +22,35 @@ def simulate_batch(sys: DynamicalSystem,
                    tf: float,
                    dt: float,
                    u: Callable,
-                   x0: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+                   x0: torch.Tensor,
+                   obs_fn: Callable = lambda i, x_hist: x_hist[:, i, :]) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
     N, nx = x0.shape
     
-    assert nx == sys.nx, "Initial states must have shape (N, nx)"
-    assert u(0.0, x0).shape == (N, sys.nu), "Control function must return a tensor of shape (N, nu)"
     # assert type(term_cond(0.0, x0) == bool)
     
     ts = torch.arange(0, tf + dt, dt)
         
     x_hist = torch.zeros(N, len(ts), nx)
     u_hist = torch.zeros(N, len(ts) - 1, sys.nu)
+    
+    assert nx == sys.nx, "Initial states must have shape (N, nx)"
+    assert u(0.0, obs_fn(0, x_hist)).shape == (N, sys.nu), "Control function must return a tensor of shape (N, nu)"
+    
     # term_idx_hist = torch.zeros(N, len(ts))
     
     # term_cond(0.0, x0)
     
     x_hist[:, 0, :] = x0
     
-    for i, t in enumerate(ts[1:]):
-        u_hist[:, i, :] = u(t, x_hist[:, i, :])
+    for i, t in enumerate(tqdm(ts[1:], desc="Simulation progress", total=len(ts)-1)):
+        observation = obs_fn(i, x_hist)
+        u_hist[:, i, :] = u(t, observation)
+                
+        # Run one RK4 integration step
         x_hist[:, i + 1, :] = rk4_step(sys.batch_dynamics, x_hist[:, i, :], u_hist[:, i, :], dt)
+        
+        # Project state if necesarry to keep it in the manifold, if necesarry
+        x_hist[:, i + 1, :] = sys.project_state(x_hist[:, i + 1, :])
     
     return ts, x_hist, u_hist
 
@@ -49,10 +59,12 @@ def simulate(sys: DynamicalSystem,
              dt: float,
              u: Callable,
              x0: torch.Tensor,
-             log: bool = True) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
-    
+             log: bool = True,
+             obs_fn: Callable = lambda i, x_hist: x_hist[i]) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
     u_modified = lambda t, x: u(t, x.squeeze(0)).unsqueeze(0)
-    ts, x_hist, u_hist = simulate_batch(sys, tf, dt, u_modified, x0.unsqueeze(0))
+    obs_fn_modified = lambda i, x_hist: obs_fn(i, x_hist.squeeze(0)).unsqueeze(0)
+    
+    ts, x_hist, u_hist = simulate_batch(sys, tf, dt, u_modified, x0.unsqueeze(0), obs_fn_modified)
     
     if log:
         sys.set_history(ts, x_hist.squeeze(0), u_hist.squeeze(0))

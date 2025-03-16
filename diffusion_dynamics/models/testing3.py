@@ -93,7 +93,7 @@ if __name__ == "__main__":
         -10.0
     ]).reshape(n_samples, 1).to(device)
     
-    sample = torch.randn((n_samples, dataset.u_pred_len, dataset.nu), device=device)
+    sample = torch.randn((n_samples, dataset.stats.u_pred_len, dataset.stats.nu), device=device)
     
     # scheduler.timesteps is an iterable of timesteps in descending order
     for t in model.scheduler.timesteps:    

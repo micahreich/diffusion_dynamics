@@ -92,10 +92,6 @@ class TensorDataset1D(Dataset):
         self.x_hist = x_hist
         self.u_hist = u_hist
         
-        self.obs_history_len = obs_history_len
-        self.u_pred_len = u_pred_len
-        self.nx, self.nu = nx, nu
-        
         self.normalized = normalize
         self.N = N2
         self.T = T2
@@ -110,10 +106,10 @@ class TensorDataset1D(Dataset):
     #     return T - n_before - n_after
     
     def set_obs_history_len(self, obs_history_len: int) -> None:
-        self.obs_history_len = obs_history_len
+        self.stats.obs_history_len = obs_history_len
     
     def set_u_pred_len(self, u_pred_len: int) -> None:
-        self.u_pred_len = u_pred_len
+        self.stats.u_pred_len = u_pred_len
      
     def __len__(self):
         return self.N * self.T
@@ -147,8 +143,8 @@ class TensorDataset1D(Dataset):
         return u[indices]
     
     def __getitem__(self, idx):
-        assert self.obs_history_len is not None and self.obs_history_len > 0, "obs_history_len must be set and > 0"
-        assert self.u_pred_len is not None and self.u_pred_len > 0, "u_pred_len must be set and > 0"
+        assert self.stats.obs_history_len is not None and self.stats.obs_history_len > 0, "obs_history_len must be set and > 0"
+        assert self.stats.u_pred_len is not None and self.stats.u_pred_len > 0, "u_pred_len must be set and > 0"
         
         sys_idx = idx // self.T
         t0_idx = idx % self.T
@@ -165,8 +161,8 @@ class TensorDataset1D(Dataset):
         # Returns the concatenated observation history ([batch_size, nx * obs_hist_len])
         # and future controls ([batch_size, u_pred_len, nu])
         
-        x_hist = self.get_state_window(self.x_hist[sys_idx], t0_idx, self.obs_history_len)
-        u_hist = self.get_control_window(self.u_hist[sys_idx], t0_idx, self.u_pred_len)
+        x_hist = self.get_state_window(self.x_hist[sys_idx], t0_idx, self.stats.obs_history_len)
+        u_hist = self.get_control_window(self.u_hist[sys_idx], t0_idx, self.stats.u_pred_len)
         
         return x_hist.flatten(), u_hist
 
@@ -180,11 +176,14 @@ class ConditionalDiffusionModel:
     def __init__(self, model=None, scheduler=None):
         self.model = model
         self.scheduler = scheduler
+        self.stats = None
         
-    def to(self, device):
+    def to(self, device) -> "ConditionalDiffusionModel":
         if self.model is not None:
             self.model = self.model.to(device)
 
+        return self
+        
     def train(
         self,
         dataset: Dataset,
@@ -196,15 +195,17 @@ class ConditionalDiffusionModel:
     ):
         assert self.model is not None, "model must be instantiated before training"
         assert self.scheduler is not None, "noise scheduler must be instantiated before training"
-        
+        self.stats = dataset.stats
+                
         print(f"Testing {self.model.__class__.__name__} forward pass...")
         
         self.model.eval()
+        
         with torch.no_grad():
-            u_noisy = torch.randn(batch_size, dataset.u_pred_len, dataset.nu)
+            u_noisy = torch.randn(batch_size, dataset.stats.u_pred_len, dataset.stats.nu)
             
             t = torch.randint(0, self.scheduler.config.num_train_timesteps, (batch_size,)).long()
-            cond = torch.randn(batch_size, dataset.obs_history_len * dataset.nx)
+            cond = torch.randn(batch_size, dataset.stats.obs_history_len * dataset.stats.nx)
 
             out = self.model(u_noisy, t, cond)
     
@@ -217,7 +218,7 @@ class ConditionalDiffusionModel:
         _, _u = dataset[0]
         u_pred_len, nu = _u.shape
         
-        assert u_pred_len == dataset.u_pred_len, "dataset u_pred_len must match the model's expected u_pred_len"
+        assert u_pred_len == dataset.stats.u_pred_len, "dataset u_pred_len must match the model's expected u_pred_len"
         
         # Instantiate our 1D UNet diffusion model
         self.model.to(device)
@@ -281,28 +282,38 @@ class ConditionalDiffusionModel:
             save_model_params.save_model_name = f"diffusion1d_{time_str}"
 
         save_fpath_full = os.path.join(save_model_params.save_full_fpath, save_model_params.save_model_name)
-        print(f"Saving model to {save_fpath_full}...")
+        root, ext = os.path.splitext(save_fpath_full)
         
-        os.makedirs(save_fpath_full, exist_ok=True)
-        torch.save(self.model.state_dict(), os.path.join(save_fpath_full, "model.pt"))
+        if ext and ext == ".pt":
+            save_fpath_full = root
+        elif ext and ext != ".pt":
+            save_fpath_full = f"{root}.pt"
+        else:
+            save_fpath_full = f"{save_fpath_full}.pt"
+        
+        print(f"Saving model to {save_fpath_full}...")
+        torch.save(self, save_fpath_full)
 
     @classmethod
-    def load_trained_model(cls, saved_model_dir_fpath: str):
+    def load_trained_model(cls, saved_model_path: str) -> "ConditionalDiffusionModel":
         device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-        state_dict = torch.load(os.path.join(saved_model_dir_fpath, "model.pt"), map_location=device)
+        return torch.load(saved_model_path, map_location=device)
+        
+        # state_dict = torch.load(os.path.join(saved_model_dir_fpath, "model.pt"), map_location=device)
 
-        m = cls()
-        assert m.model is not None, "model must be instantiated before loading a trained model"
+        # m = cls(*args, **kwargs)
+        # assert m.model is not None, "model must be instantiated before loading a trained model"
 
-        m.model.load_state_dict(state_dict)
+        # m.model.load_state_dict(state_dict)
 
-        return m
+        # return m
     
-    def sample(self, n_samples, cond, data_stats: TensorDataset1DStats, device, num_inference_steps=None):
-        sample = torch.randn((n_samples, data_stats.u_pred_len, data_stats.nu), device=device)
+    def sample(self, n_samples, cond, device, num_inference_steps=None):
+        sample = torch.randn((n_samples, self.stats.u_pred_len, self.stats.nu), device=device)
         cond = cond.to(device)
         
-        assert cond.shape == (n_samples, data_stats.nx * data_stats.obs_history_len)
+        assert cond.shape == (n_samples, self.stats.nx * self.stats.obs_history_len), \
+            f"cond shape {cond.shape} must be (n_samples, nx * obs_history_len) = ({n_samples}, {self.stats.nx * self.stats.obs_history_len})"
         
         if num_inference_steps is not None:
             self.scheduler.set_timesteps(num_inference_steps=num_inference_steps)

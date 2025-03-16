@@ -13,20 +13,30 @@ import time
 import os
 
 
-if __name__ == "__main__":        
-    cart_pole = CartPole(params=CartPole.Params(1, 1, 1, 9.81))
-    
+cart_pole = CartPole(params=CartPole.Params(1, 1, 1, 9.81))
+xbar = torch.tensor([1.0, torch.pi, 0, 0], dtype=torch.float32)
+ubar = torch.tensor([0.], dtype=torch.float32)
+
+A = torch_to_numpy(torch.autograd.functional.jacobian(lambda _x : cart_pole.dynamics(_x, ubar), xbar))
+B = torch_to_numpy(torch.autograd.functional.jacobian(lambda _u : cart_pole.dynamics(xbar, _u), ubar))
+Q = np.eye(4)
+R = 0.1 * np.eye(1)
+P = solve_continuous_are(A, B, Q, R)
+
+K = numpy_to_torch(np.linalg.inv(R) @ B.T @ P)
+
+if __name__ == "__main__":            
     # Compute LQR gain matrix K
-    xbar = torch.tensor([1.0, torch.pi, 0, 0], dtype=torch.float32)
-    ubar = torch.tensor([0.], dtype=torch.float32)
+    # xbar = torch.tensor([1.0, torch.pi, 0, 0], dtype=torch.float32)
+    # ubar = torch.tensor([0.], dtype=torch.float32)
     
-    A = torch_to_numpy(torch.autograd.functional.jacobian(lambda _x : cart_pole.dynamics(_x, ubar), xbar))
-    B = torch_to_numpy(torch.autograd.functional.jacobian(lambda _u : cart_pole.dynamics(xbar, _u), ubar))
-    Q = np.eye(4)
-    R = 0.1 * np.eye(1)
-    P = solve_continuous_are(A, B, Q, R)
+    # A = torch_to_numpy(torch.autograd.functional.jacobian(lambda _x : cart_pole.dynamics(_x, ubar), xbar))
+    # B = torch_to_numpy(torch.autograd.functional.jacobian(lambda _u : cart_pole.dynamics(xbar, _u), ubar))
+    # Q = np.eye(4)
+    # R = 0.1 * np.eye(1)
+    # P = solve_continuous_are(A, B, Q, R)
     
-    K = numpy_to_torch(np.linalg.inv(R) @ B.T @ P)
+    # K = numpy_to_torch(np.linalg.inv(R) @ B.T @ P)
     
     N = 10_000
     print(f"Simulating {N} CartPoles with LQR stabilization...")

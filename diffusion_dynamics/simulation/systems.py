@@ -26,6 +26,9 @@ class DynamicalSystem:
                 f"Class variable 'nx' and 'nu' must be overridden in {cls.__name__}"
             )
     
+    def project_state(self, x: torch.Tensor) -> torch.Tensor:
+        return x
+    
     def batch_dynamics(self, x: torch.Tensor, u: torch.Tensor) -> torch.Tensor:
         raise NotImplementedError
     
@@ -86,14 +89,14 @@ class CartPole(DynamicalSystem):
     nu = 1
     
     class PlotElement(PlotElement):
-        def __init__(self, env: PlotEnvironment, sys: "CartPole") -> None:
+        def __init__(self, env: PlotEnvironment, sys: "CartPole", cart_color='blue') -> None:
             super().__init__(env)
 
             self.sys = sys
             
             self.cart_width, self.cart_height = 0.4, 0.2
             
-            self.cart = self.env.ax.add_patch(plt.Rectangle((-self.cart_width/2, -self.cart_height/2), self.cart_width, self.cart_height, fc="blue"))  # Cart
+            self.cart = self.env.ax.add_patch(plt.Rectangle((-self.cart_width/2, -self.cart_height/2), self.cart_width, self.cart_height, fc=cart_color))  # Cart
             (self.rod,) = self.env.ax.plot([], [], 'o-', lw=2, markersize=5, c='black', markerfacecolor='gray')  # Pole
             
             x_lo, x_hi = sys.x_history[:, 0].min(), sys.x_history[:, 0].max()
@@ -102,8 +105,11 @@ class CartPole(DynamicalSystem):
             x_lo = (x_lo + x_hi) / 2 - new_range / 2
             x_hi = (x_lo + x_hi) / 2 + new_range / 2
             
-            self.env.ax.set_xlim(x_lo, x_hi)
-            self.env.ax.set_ylim(-sys.params.l * 1.2, sys.params.l * 1.2)
+            self.env.set_xlim(x_lo, x_hi)
+            self.env.set_ylim(-sys.params.l * 1.2, sys.params.l * 1.2)
+            
+            # self.env.ax.set_xlim(x_lo, x_hi)
+            # self.env.ax.set_ylim(-sys.params.l * 1.2, sys.params.l * 1.2)
 
         def update(self, t):
             state, _ = self.sys.query_history(t)  # Get the current state of the cartpole
@@ -122,6 +128,19 @@ class CartPole(DynamicalSystem):
     
     def __init__(self, params: Params) -> None:
         super().__init__("CartPole", params)
+    
+    def project_state(self, x: torch.Tensor) -> torch.Tensor:
+        # Project the state to a suitable range if necessary
+        # For CartPole, we might want to wrap the angle theta to be within [-pi, pi]
+        if len(x.shape) == 2:
+            theta = x[:, 1]
+            x[:, 1] = torch.remainder(theta, 2 * np.pi)
+        else:
+            theta = x[1]
+            x[1] = theta % (2 * np.pi)
+            
+        return x
+        
     
     def batch_dynamics(self, x: torch.Tensor, u: torch.Tensor) -> torch.Tensor:
         N1, nx = x.shape

@@ -225,10 +225,10 @@ class ConditionalUnet1DModel:
         
         self.unet.eval()
         with torch.no_grad():
-            u_noisy = torch.randn(batch_size, dataset.u_pred_len, dataset.nu)
+            u_noisy = torch.randn(batch_size, dataset.stats.u_pred_len, dataset.stats.nu)
             
             t = torch.randint(0, self.scheduler.config.num_train_timesteps, (batch_size,)).long()
-            cond = torch.randn(batch_size, dataset.obs_history_len * dataset.nx)
+            cond = torch.randn(batch_size, dataset.stats.obs_history_len * dataset.stats.nx)
 
             out = self.unet(u_noisy, t, cond)
     
@@ -241,8 +241,8 @@ class ConditionalUnet1DModel:
         _, _u = dataset[0]
         u_pred_len, nu = _u.shape
         
-        assert u_pred_len == dataset.u_pred_len, "dataset u_pred_len must match the model's expected u_pred_len"
-        assert nu == dataset.nu == self.unet.in_channels, "dataset nu must match the model's expected nu"
+        assert u_pred_len == dataset.stats.u_pred_len, "dataset u_pred_len must match the model's expected u_pred_len"
+        assert nu == dataset.stats.nu == self.unet.in_channels, "dataset nu must match the model's expected nu"
 
         # Instantiate our 1D UNet diffusion model
         self.unet.to(device)
