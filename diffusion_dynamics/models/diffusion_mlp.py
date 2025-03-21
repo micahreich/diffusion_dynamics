@@ -6,7 +6,8 @@ from diffusers.models.embeddings import get_timestep_embedding
 from diffusers.models.resnet import ResidualTemporalBlock1D, Conv1dBlock
 from diffusers.models.downsampling import Downsample1D
 from diffusers.models.upsampling import Upsample1D
-from diffusion_dynamics.models.utils import TensorDataset1D, ConditionalDiffusionModel, TensorDataset1DStats
+from diffusion_dynamics.models.diffusion_agent import ConditionalDiffusionAgent
+from diffusion_dynamics.models.utils import TensorDataset1D, TensorDataset1DStats
 from diffusion_dynamics.utils import torch_to_numpy
 import einops
 from einops.layers.torch import Rearrange
@@ -55,6 +56,7 @@ class ConditionalResidualBlockMLP(nn.Module):
 
         # If dimensions do not match, use a shortcut projection
         if in_features != out_features:
+            print("This shouldnt happen")
             self.shortcut = nn.Linear(in_features, out_features)
         else:
             self.shortcut = nn.Identity()
@@ -75,9 +77,10 @@ class ConditionalResidualBlockMLP(nn.Module):
             h = scale * h + bias
         else:
             h = h + cond_out
-
         h = F.mish(h)
+        
         h = self.fc2(h)
+        
         return h + self.shortcut(x)
 
 
@@ -102,8 +105,8 @@ class ResidualBlockMLP(nn.Module):
 
 class ConditionalMLP(nn.Module):
     def __init__(self,
-                 input_dim=2,
-                 cond_dim=1,
+                 input_dim,
+                 cond_dim,
                  hidden_dim=128,
                  n_blocks=4,
                  cond_predict_scale=False,
@@ -121,87 +124,47 @@ class ConditionalMLP(nn.Module):
         self.cond_dim = cond_dim
         self.hidden_dim = hidden_dim
         self.n_blocks = n_blocks
-
-        # Time embedding module: embed the diffusion timestep into a vector
         self.time_embed_dim = hidden_dim
-        # self.cond_embed_dim = hidden_dim
+        self.cond_embed_dim = hidden_dim
         
-        self.time_mlp = nn.Sequential(
-            SinusoidalPosEmb(self.time_embed_dim),
+        self.pos_emb = nn.Sequential(
+            SinusoidalPosEmb(dim=self.time_embed_dim),
             nn.Linear(self.time_embed_dim, self.time_embed_dim * 4),
             nn.Mish(),
             nn.Linear(self.time_embed_dim * 4, self.time_embed_dim)
         )
         
-        # # The conditioning will be the concatenation of the time embedding and the external condition.        
-        # if not use_film_conditioning:
-        #     self.cond_mlp = nn.Sequential(
-        #         nn.Linear(cond_dim, self.cond_embed_dim),
-        #         nn.Mish(),
-        #         nn.Linear(self.cond_embed_dim, self.cond_embed_dim)
-        #     )
-            
-        #     input_total_dim = input_dim + self.cond_embed_dim
-        # else:
-        #     input_total_dim = input_dim
-        cond_total_dim = cond_dim + self.time_embed_dim
-
-            
-        # Project input into the hidden dimension.
-        self.input_fc = nn.Linear(input_dim, hidden_dim)
-
-        # Create a stack of conditional residual blocks.
-        self.blocks = nn.ModuleList([
-            ConditionalResidualBlockMLP(
-                in_features=hidden_dim,
-                out_features=hidden_dim,
-                cond_dim=cond_total_dim,
-                cond_predict_scale=cond_predict_scale,
-            )
-            # if use_film_conditioning else \
-            # ResidualBlockMLP(
-            #     in_features=hidden_dim,
-            #     out_features=hidden_dim
-            # )
-            # for _ in range(n_blocks)
-        ])
-
-        # Final projection back to input dimension.
-        self.output_fc = nn.Linear(hidden_dim, input_dim)
+        self.cond_emb = nn.Sequential(
+            nn.Linear(cond_dim, self.cond_embed_dim * 4),
+            nn.Mish(),
+            nn.Linear(self.cond_embed_dim * 4, self.cond_embed_dim)
+        )
+        
+        layers = []
+        layers.append(nn.Linear(input_dim + self.cond_embed_dim + self.time_embed_dim, hidden_dim))
+        layers.append(nn.Mish())
+        
+        for _ in range(n_blocks - 1):
+            layers.append(nn.Linear(hidden_dim, hidden_dim))
+            layers.append(nn.Mish())
+        
+        layers.append(nn.Linear(hidden_dim, input_dim))
+        self.network = nn.Sequential(*layers)
 
     def forward(self, x, t, cond):
-        """
-        Args:
-            x: Tensor of shape (batch, u_pred_len, nu) – the noisy sample.
-            t: Tensor of shape (batch,) – the diffusion timesteps.
-            cond: Tensor of shape (batch, cond_dim) – external condition.
-        Returns:
-            Tensor of shape (batch, input_dim) – predicted noise.
-        """
         _, T, nu = x.shape
         assert T * nu == self.input_dim, f"Input dimension mismatch: {T * nu} != {self.input_dim}"
         
         # x has shape (batch, T, nu), we need to flatten it to (batch, T*nu) in case of multiple u predictions
         x = einops.rearrange(x, 'b h c -> b (h c)')
         
-        # Embed the timestep.
-        t_emb = self.time_mlp(t)  # (batch, time_embed_dim)
-        # Combine time embedding with the external condition.
+        t_emb = self.pos_emb(t)
+        cond_emb = self.cond_emb(cond)
         
-        cond_emb = torch.cat([t_emb, cond], dim=-1)
-
-        # Project input to hidden dimension.
-        h = self.input_fc(x)
-        h = F.mish(h)
-        
-        # Pass through the residual blocks.
-        for block in self.blocks:
-            h = block(h, cond_emb)
-            
-        # Final projection to get back to the original input dimension.
-        out = self.output_fc(h)
-        
+        z = torch.cat([x, t_emb, cond_emb], dim=-1)
+        out = self.network(z)
         out = einops.rearrange(out, 'b (h c) -> b h c', c=nu)
+        
         return out
 
 
@@ -259,7 +222,7 @@ if __name__ == '__main__':
         print(f"Sample index {i}:", dataset[i])
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    diffusion_model = ConditionalDiffusionModel(
+    diffusion_model = ConditionalDiffusionAgent(
         mlp,
         scheduler
     )

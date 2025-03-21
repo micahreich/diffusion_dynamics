@@ -1,21 +1,18 @@
 import torch
 import numpy as np
 from typing import Any, Tuple, Callable
-from diffusion_dynamics.models.diffusion_agent import ConditionalDiffusionAgent
+from diffusion_dynamics.models.utils import TensorDataset1D
 from diffusion_dynamics.simulation.systems import DynamicalSystem
 from diffusion_dynamics.utils import torch_to_numpy, numpy_to_torch
 from diffusion_dynamics.simulation.animation import PlotElement, PlotEnvironment
 from diffusion_dynamics.simulation.systems import CartPole
 from diffusion_dynamics.simulation.simulator import simulate
-from diffusion_dynamics.models.utils import TensorDataset1D
-from scipy.linalg import solve_continuous_are
-import time
 import copy
 import os
 from matplotlib import pyplot as plt
 
 from diffusion_dynamics.experiments.cartpole.generate_lqr_data import cart_pole, K, xbar, ubar
-
+from diffusion_dynamics.models.gaussian_agent import ConditionalGaussianAgent
 
 if __name__ == "__main__":
     x0 = torch.tensor([0.0, torch.pi-0.4, 0.0, -1.0], dtype=torch.float32)
@@ -26,29 +23,29 @@ if __name__ == "__main__":
     
     cart_pole_lqr = copy.deepcopy(cart_pole)
     ts_lqr, x_hist_lqr, u_hist_lqr = simulate(cart_pole_lqr, 5.0, 0.02, u_lqr, x0, log=True)
-
+    
     # Simulate the behavior cloning policy    
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    policy = ConditionalDiffusionAgent.load_trained_model(
-        '/workspace/diffusion_dynamics/experiments/cartpole/cartpole_diffusion_policy4.pt'
+    policy = ConditionalGaussianAgent.load_trained_model(
+        '/workspace/diffusion_dynamics/experiments/cartpole/cartpole_gaussian_policy1.pt'
     ).to(device)
     
     def obs_fn_policy(i, xhist):
         return TensorDataset1D.get_state_window(xhist, i, policy.stats.obs_history_len).flatten()
     
     def u_policy(_t, observation):
-        action_sample = policy.sample(observation.unsqueeze(0), device, num_inference_steps=10)
+        action_sample = policy.sample(observation.unsqueeze(0), device)
         return action_sample[0, 0].to(observation.device)
     
     test_i = 0
     obs = obs_fn_policy(test_i, x_hist_lqr)
-    upolicy = policy.sample(obs.unsqueeze(0), device, 50)
+    upolicy = policy.sample(obs.unsqueeze(0), device)
     
     print("u_lqr", u_lqr(0, x_hist_lqr[test_i]))
     print("diffusion policy", upolicy)
     
     cart_pole_bc = copy.deepcopy(cart_pole)
-    ts_bc, x_hist_bc, u_hist_bc = torch_to_numpy(*simulate(cart_pole_bc, 10.0, 0.02,
+    ts_bc, x_hist_bc, u_hist_bc = torch_to_numpy(*simulate(cart_pole_bc, 10.0, 0.05,
                                                            u_policy, x0, True, obs_fn_policy))
     
     # Plot states and control
@@ -57,12 +54,14 @@ if __name__ == "__main__":
     ax[0].plot(ts_bc, x_hist_bc[:, 2], label=r"$\dot{x}$", color="blue", alpha=0.4)
     ax[0].plot(ts_bc, x_hist_bc[:, 1], label=r"$\theta$", color="red")
     ax[0].plot(ts_bc, x_hist_bc[:, 3], label=r"$\dot{\theta}$", color="red", alpha=0.4)
+    ax[0].grid(True)
     ax[0].set_ylabel("States")
     ax[0].legend()
     
     ax[1].plot(ts_bc[:-1], u_hist_bc, label="u", color="purple")
     ax[1].set_ylabel("Control")
     ax[1].legend()
+    
     
     plt.show()
     
@@ -75,7 +74,7 @@ if __name__ == "__main__":
     env.add_element(CartPole.PlotElement(env, cart_pole_bc, 'blue'))
     env.add_element(CartPole.PlotElement(env, cart_pole_lqr, 'green'))
     _ = env.render(
-        t_range=(0, 10.),
+        t_range=(0, 10),
         fps=30
     )
     

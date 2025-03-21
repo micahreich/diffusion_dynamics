@@ -96,7 +96,17 @@ class CartPole(DynamicalSystem):
             
             self.cart_width, self.cart_height = 0.4, 0.2
             
-            self.cart = self.env.ax.add_patch(plt.Rectangle((-self.cart_width/2, -self.cart_height/2), self.cart_width, self.cart_height, fc=cart_color))  # Cart
+            self.cart = self.env.ax.add_patch(
+                plt.Rectangle(
+                    (-self.cart_width/2, -self.cart_height/2), 
+                    self.cart_width, 
+                    self.cart_height, 
+                    fc=cart_color,   # face color
+                    ec='black',      # edge color
+                    lw=1             # line width
+                )
+            )
+
             (self.rod,) = self.env.ax.plot([], [], 'o-', lw=2, markersize=5, c='black', markerfacecolor='gray')  # Pole
             
             x_lo, x_hi = sys.x_history[:, 0].min(), sys.x_history[:, 0].max()
