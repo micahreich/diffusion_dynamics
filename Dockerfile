@@ -1,8 +1,9 @@
 # Use PyTorch base image with CUDA support
 FROM pytorch/pytorch:2.1.0-cuda12.1-cudnn8-runtime
-ARG HOST_UID
-ARG HOST_GID
-ARG HOST_USER
+
+# Build arguments for user and group IDs; defaults to 1000.
+ARG USER_ID=1000
+ARG GROUP_ID=1000
 
 # Set non-interactive mode for installations
 ENV DEBIAN_FRONTEND=noninteractive
@@ -35,6 +36,8 @@ RUN pip install --no-cache-dir \
     tensorboard \
     jax \
     black \
+    yapf \
+    pre-commit \
     && pip cache purge
 
 RUN pip install \
@@ -42,11 +45,12 @@ RUN pip install \
     smalldiffusion \
     torch_ema
 
-# Set up current user
-RUN groupadd -g ${HOST_GID} ${HOST_USER} && \
-    useradd -m -u ${HOST_UID} -g ${HOST_USER} ${HOST_USER} && \
-    usermod -aG sudo ${HOST_USER} && \
-    echo "${HOST_USER} ALL=(ALL) NOPASSWD:ALL" >> /etc/sudoers
+# Create a non-root user named "dev" with the provided UID/GID.
+RUN groupadd -g ${GROUP_ID} dev && \
+    useradd -m -u ${USER_ID} -g dev -s /bin/bash dev && \
+    echo "dev ALL=(ALL) NOPASSWD:ALL" >> /etc/sudoers
+
+RUN mkdir -p /home/dev/workspace && chown -R dev:dev /home/dev/workspace
 
 # Set up Jupyter Notebook config
 RUN mkdir -p /root/.jupyter && \
@@ -54,22 +58,19 @@ RUN mkdir -p /root/.jupyter && \
     echo "c.NotebookApp.allow_root = True" >> /root/.jupyter/jupyter_notebook_config.py && \
     echo "c.NotebookApp.open_browser = False" >> /root/.jupyter/jupyter_notebook_config.py
 
-# Set working directory
-WORKDIR /workspace
+EXPOSE 8888
+    
+# Set the working directory.
+WORKDIR /home/dev/workspace
 
 # Install the package in editable mode
-COPY . /workspace/
+COPY . /home/dev/workspace
 RUN pip install -e .
 
-# Expose Jupyter notebook port
-EXPOSE 8888
+USER dev
 
-USER ${HOST_USER}
-
-RUN git config --global --add safe.directory /workspace
+ENV PATH="/home/dev/.local/bin:${PATH}"
+RUN git config --global --add safe.directory /home/dev/workspace
 
 # Set default command to keep the container running
 CMD ["bash"]
-
-# To build the container after changes, run:
-# $ docker build --network=host -t diffusion_dynamics_image -f Dockerfile .

@@ -1,40 +1,40 @@
+from dataclasses import dataclass
+from typing import Any, Optional, Tuple
+
+import matplotlib.pyplot as plt
 import numpy as np
 import torch
-from typing import Optional, Any, Tuple
-from dataclasses import dataclass
 from scipy.linalg import solve_continuous_are
-from diffusion_dynamics.utils import torch_to_numpy
+
 from diffusion_dynamics.simulation.animation import PlotElement, PlotEnvironment
-import matplotlib.pyplot as plt
+from diffusion_dynamics.utils import torch_to_numpy
 
 
 class DynamicalSystem:
     nx = None
     nu = None
-    
+
     def __init__(self, name: Optional[str] = None, params: Optional[Any] = None) -> None:
         self.name = name
         self.params = params
-        
+
         self.t_history = self.x_history = self.u_history = None
-    
+
     def __init_subclass__(cls, **kwargs):
         super().__init_subclass__(**kwargs)
         # Check if the subclass has its own definition of 'a'
         if cls.nx is DynamicalSystem.nx or cls.nu is DynamicalSystem.nu:
-            raise NotImplementedError(
-                f"Class variable 'nx' and 'nu' must be overridden in {cls.__name__}"
-            )
-    
+            raise NotImplementedError(f"Class variable 'nx' and 'nu' must be overridden in {cls.__name__}")
+
     def project_state(self, x: torch.Tensor) -> torch.Tensor:
         return x
-    
+
     def batch_dynamics(self, x: torch.Tensor, u: torch.Tensor) -> torch.Tensor:
         raise NotImplementedError
-    
+
     def dynamics(self, x: torch.Tensor, u: torch.Tensor) -> torch.Tensor:
         return self.batch_dynamics(x.unsqueeze(0), u.unsqueeze(0)).squeeze(0)
-    
+
     def clear_history(self) -> None:
         self.t_history = self.x_history = self.u_history = None
 
@@ -77,6 +77,7 @@ class DynamicalSystem:
 
         return torch.as_tensor(x_interp), torch.as_tensor(u_interp)
 
+
 class CartPole(DynamicalSystem):
     @dataclass
     class Params:
@@ -84,47 +85,43 @@ class CartPole(DynamicalSystem):
         m_p: float
         l: float
         g: float
-    
+
     nx = 4
     nu = 1
-    
+
     class PlotElement(PlotElement):
         def __init__(self, env: PlotEnvironment, sys: "CartPole", cart_color='blue') -> None:
             super().__init__(env)
 
             self.sys = sys
-            
+
             self.cart_width, self.cart_height = 0.4, 0.2
-            
+
             self.cart = self.env.ax.add_patch(
                 plt.Rectangle(
-                    (-self.cart_width/2, -self.cart_height/2), 
-                    self.cart_width, 
-                    self.cart_height, 
-                    fc=cart_color,   # face color
-                    ec='black',      # edge color
-                    lw=1             # line width
-                )
-            )
+                    (-self.cart_width / 2, -self.cart_height / 2),
+                    self.cart_width,
+                    self.cart_height,
+                    fc=cart_color,  # face color
+                    ec='black',  # edge color
+                    lw=1  # line width
+                ))
 
-            (self.rod,) = self.env.ax.plot([], [], 'o-', lw=2, markersize=5, c='black', markerfacecolor='gray')  # Pole
-            
+            (self.rod, ) = self.env.ax.plot([], [], 'o-', lw=2, markersize=5, c='black', markerfacecolor='gray')  # Pole
+
             x_lo, x_hi = sys.x_history[:, 0].min(), sys.x_history[:, 0].max()
             new_range = (x_hi - x_lo + self.cart_width) * 1.2
-            
+
             x_lo = (x_lo + x_hi) / 2 - new_range / 2
             x_hi = (x_lo + x_hi) / 2 + new_range / 2
-            
+
             self.env.set_xlim(x_lo, x_hi)
             self.env.set_ylim(-sys.params.l * 1.2, sys.params.l * 1.2)
-            
-            # self.env.ax.set_xlim(x_lo, x_hi)
-            # self.env.ax.set_ylim(-sys.params.l * 1.2, sys.params.l * 1.2)
 
         def update(self, t):
             state, _ = self.sys.query_history(t)  # Get the current state of the cartpole
             x, theta = state[0], state[1]  # Extract cart position and pole angle
-            
+
             # Compute the pole's end position
             l = self.sys.params.l
             pole_x = x + l * np.sin(theta)
@@ -132,13 +129,13 @@ class CartPole(DynamicalSystem):
 
             # Update cart position
             self.cart.set_xy((x - 0.2, -0.1))  # Adjusted for cart size
-            
+
             # Update pole position
             self.rod.set_data([x, pole_x], [0, pole_y])
-    
+
     def __init__(self, params: Params) -> None:
         super().__init__("CartPole", params)
-    
+
     def project_state(self, x: torch.Tensor) -> torch.Tensor:
         # Project the state to a suitable range if necessary
         # For CartPole, we might want to wrap the angle theta to be within [-pi, pi]
@@ -148,54 +145,61 @@ class CartPole(DynamicalSystem):
         else:
             theta = x[1]
             x[1] = theta % (2 * np.pi)
-            
+
         return x
-        
-    
+
     def batch_dynamics(self, x: torch.Tensor, u: torch.Tensor) -> torch.Tensor:
+        if len(x.shape) == 1 and len(u.shape) == 1:
+            x = x.unsqueeze(0)
+            u = u.unsqueeze(0)
+
         N1, nx = x.shape
         N2, nu = u.shape
-        
+
         assert nx == self.nx
         assert nu == self.nu
         assert N1 == N2
-        
+
         _, theta, v, theta_dot = x.T.unsqueeze(-1)
-                
-        x_ddot = 1/(self.params.m_c + self.params.m_p * torch.sin(theta)**2) * (
-            u + self.params.m_p * torch.sin(theta) * (self.params.l * theta_dot**2 + self.params.g * torch.cos(theta))
-        )
-        
-        theta_ddot = 1/(self.params.l * (self.params.m_c + self.params.m_p * torch.sin(theta)**2)) * (
-            -u * torch.cos(theta) - self.params.m_p * self.params.l * theta_dot**2 * torch.cos(theta) * torch.sin(theta) - (self.params.m_c + self.params.m_p) * self.params.g * torch.sin(theta)
-        )
-        
-        return torch.column_stack([v, theta_dot, x_ddot, theta_ddot])
+
+        x_ddot = 1 / (self.params.m_c + self.params.m_p * torch.sin(theta) ** 2) * (
+            u + self.params.m_p * torch.sin(theta) *
+            (self.params.l * theta_dot ** 2 + self.params.g * torch.cos(theta)))
+
+        theta_ddot = 1 / (self.params.l * (self.params.m_c + self.params.m_p * torch.sin(theta) ** 2)) * (
+            -u * torch.cos(theta) -
+            self.params.m_p * self.params.l * theta_dot ** 2 * torch.cos(theta) * torch.sin(theta) -
+            (self.params.m_c + self.params.m_p) * self.params.g * torch.sin(theta))
+
+        y_dot = torch.column_stack([v, theta_dot, x_ddot, theta_ddot])
+
+        return torch.squeeze(y_dot)
+
 
 if __name__ == "__main__":
     cart_pole = CartPole(params=CartPole.Params(1, 1, 1, 9.81))
-    
-    xbar = torch.tensor([0,torch.pi - 0.4,0,0], dtype=torch.float32)
+
+    xbar = torch.tensor([0, torch.pi - 0.4, 0, 0], dtype=torch.float32)
     ubar = torch.tensor([24.24184], dtype=torch.float32)
-    
+
     print(cart_pole.dynamics(xbar, ubar))
-    
+
     xbar = torch.tile(xbar, dims=(5, 1))
     ubar = torch.tile(ubar, dims=(5, 1))
-    
+
     print(cart_pole.batch_dynamics(xbar, ubar))
-    
+
     # ubar = torch.tensor([0.], dtype=torch.float32)
     # ubar = torch.tile(ubar, dims=(100, 1))
-    
+
     # print(cart_pole.batch_dynamics(xbar, ubar))
     # print(cart_pole.dynamics(xbar, ubar))
-    
+
     # A = torch_to_numpy(torch.autograd.functional.jacobian(lambda _x : cart_pole.dynamics(_x, ubar), xbar))
     # B = torch_to_numpy(torch.autograd.functional.jacobian(lambda _u : cart_pole.dynamics(xbar, _u), ubar))
     # Q = np.eye(4)
     # R = np.eye(1)
     # P = solve_continuous_are(A, B, Q, R)
     # K = np.linalg.inv(R) @ B.T @ P
-    
+
     # print(A.shape, B.shape, K.shape)
