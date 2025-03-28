@@ -10,6 +10,13 @@ from diffusion_dynamics.simulation.animation import PlotElement, PlotEnvironment
 from diffusion_dynamics.utils import torch_to_numpy
 
 
+def angle_wrap(theta, mode='0:2pi'):
+    if mode == '0:2pi':
+        return torch.remainder(theta, 2 * np.pi)
+    elif mode == '-pi:pi':
+        return torch.remainder(theta + np.pi, 2 * np.pi) - np.pi
+
+
 class DynamicalSystem:
     nx = None
     nu = None
@@ -89,6 +96,46 @@ class CartPole(DynamicalSystem):
     nx = 4
     nu = 1
 
+    def __init__(self, params: Params) -> None:
+        super().__init__("CartPole", params)
+
+    def project_state(self, x: torch.Tensor) -> torch.Tensor:
+        if len(x.shape) == 2:
+            theta = x[:, 1]
+            x[:, 1] = angle_wrap(theta, mode='-pi:pi')
+        else:
+            theta = x[1]
+            x[1] = angle_wrap(theta, mode='-pi:pi')
+
+        return x
+
+    def batch_dynamics(self, x: torch.Tensor, u: torch.Tensor) -> torch.Tensor:
+        if len(x.shape) == 1 and len(u.shape) == 1:
+            x = x.unsqueeze(0)
+            u = u.unsqueeze(0)
+
+        N1, nx = x.shape
+        N2, nu = u.shape
+
+        assert nx == self.nx
+        assert nu == self.nu
+        assert N1 == N2
+
+        _, theta, v, theta_dot = x.T.unsqueeze(-1)
+
+        x_ddot = 1 / (self.params.m_c + self.params.m_p * torch.sin(theta) ** 2) * (
+            u + self.params.m_p * torch.sin(theta) *
+            (self.params.l * theta_dot ** 2 + self.params.g * torch.cos(theta)))
+
+        theta_ddot = 1 / (self.params.l * (self.params.m_c + self.params.m_p * torch.sin(theta) ** 2)) * (
+            -u * torch.cos(theta) -
+            self.params.m_p * self.params.l * theta_dot ** 2 * torch.cos(theta) * torch.sin(theta) -
+            (self.params.m_c + self.params.m_p) * self.params.g * torch.sin(theta))
+
+        y_dot = torch.column_stack([v, theta_dot, x_ddot, theta_ddot])
+
+        return torch.squeeze(y_dot)
+
     class PlotElement(PlotElement):
         def __init__(self, env: PlotEnvironment, sys: "CartPole", cart_color='blue') -> None:
             super().__init__(env)
@@ -133,18 +180,28 @@ class CartPole(DynamicalSystem):
             # Update pole position
             self.rod.set_data([x, pole_x], [0, pole_y])
 
+
+class PlanarQuadrotor(DynamicalSystem):
+    @dataclass
+    class Params:
+        m: float
+        I: float
+        r: float
+        g: float
+
+    nx = 6
+    nu = 2
+
     def __init__(self, params: Params) -> None:
-        super().__init__("CartPole", params)
+        super().__init__("PlanarQuadrotor", params)
 
     def project_state(self, x: torch.Tensor) -> torch.Tensor:
-        # Project the state to a suitable range if necessary
-        # For CartPole, we might want to wrap the angle theta to be within [-pi, pi]
         if len(x.shape) == 2:
-            theta = x[:, 1]
-            x[:, 1] = torch.remainder(theta, 2 * np.pi)
+            theta = x[:, 2]
+            x[:, 2] = angle_wrap(theta, mode='-pi:pi')
         else:
-            theta = x[1]
-            x[1] = theta % (2 * np.pi)
+            theta = x[2]
+            x[2] = angle_wrap(theta, mode='-pi:pi')
 
         return x
 
@@ -160,20 +217,95 @@ class CartPole(DynamicalSystem):
         assert nu == self.nu
         assert N1 == N2
 
-        _, theta, v, theta_dot = x.T.unsqueeze(-1)
+        rx, ry, theta, x_dot, y_dot, theta_dot = x.T.unsqueeze(-1)
+        u1, u2 = u.T.unsqueeze(-1)
 
-        x_ddot = 1 / (self.params.m_c + self.params.m_p * torch.sin(theta) ** 2) * (
-            u + self.params.m_p * torch.sin(theta) *
-            (self.params.l * theta_dot ** 2 + self.params.g * torch.cos(theta)))
+        x_ddot = 1 / self.params.m * -((u1 + u2) * torch.sin(theta))
+        y_ddot = 1 / self.params.m * ((u1 + u2) * torch.cos(theta) - self.params.g)
+        theta_ddot = 1 / self.params.I * self.params.r * (u1 - u2)
 
-        theta_ddot = 1 / (self.params.l * (self.params.m_c + self.params.m_p * torch.sin(theta) ** 2)) * (
-            -u * torch.cos(theta) -
-            self.params.m_p * self.params.l * theta_dot ** 2 * torch.cos(theta) * torch.sin(theta) -
-            (self.params.m_c + self.params.m_p) * self.params.g * torch.sin(theta))
-
-        y_dot = torch.column_stack([v, theta_dot, x_ddot, theta_ddot])
+        y_dot = torch.column_stack([x_dot, y_dot, theta_dot, x_ddot, y_ddot, theta_ddot])
 
         return torch.squeeze(y_dot)
+
+    class PlotElement(PlotElement):
+        def __init__(self,
+                     env: PlotEnvironment,
+                     sys: "PlanarQuadrotor",
+                     body_color='gray',
+                     thrust_color='red',
+                     arrow_scale=0.001,
+                     alpha=1.0) -> None:
+            super().__init__(env)
+            self.sys = sys
+            self.arrow_scale = arrow_scale  # Factor to scale control inputs for display
+
+            # Body dimensions and drawing
+            self.body_width = 0.6
+            self.body_height = 0.2
+            self.body_patch = self.env.ax.add_patch(
+                plt.Rectangle(
+                    (-self.body_width / 2, -self.body_height / 2),
+                    self.body_width,
+                    self.body_height,
+                    angle=0.0,
+                    alpha=alpha,
+                    fc=body_color,  # face color
+                    ec='black',  # edge color
+                    lw=1  # line width
+                ))
+
+            # Initial rotor positions in the body frame (assumed to be at ±r along x-axis)
+            rotor_left = np.array([-self.body_width / 2, 0])
+            rotor_right = np.array([self.body_width / 2, 0])
+            initial_positions = np.array([rotor_left, rotor_right])
+            # Initially, no thrust is applied so arrows have zero length
+            U_init = np.array([0, 0])
+            V_init = np.array([0, 0])
+            # Create a quiver plot for the thrust arrows.
+            # Note: set angles='xy', scale_units='xy', and scale=1 so that the arrow lengths
+            # correspond directly to the vector components.
+            self.thrust_quiver = self.env.ax.quiver(initial_positions[0, :],
+                                                    initial_positions[1, :],
+                                                    U_init,
+                                                    V_init,
+                                                    angles='xy',
+                                                    scale_units='xy',
+                                                    scale=1,
+                                                    color=thrust_color)
+
+            # Optionally, set plot limits based on state history or a default
+            rx_vals = sys.x_history[:, 0]
+            ry_vals = sys.x_history[:, 1]
+            margin = 1.0
+
+            self.env.set_xlim(rx_vals.min() - margin, rx_vals.max() + margin)
+            self.env.set_ylim(ry_vals.min() - margin, ry_vals.max() + margin)
+
+            self.max_thrust = torch.max(torch.abs(sys.u_history))
+
+        def update(self, t):
+            # Get current state and control input from the system's history
+            state, control = self.sys.query_history(t)
+            rx, ry, theta = state[0], state[1], state[2]
+            u1, u2 = control[0], control[1]
+
+            # # Build rotation matrix for current orientation
+            c, s = torch.cos(theta), torch.sin(theta)
+            R = torch.tensor([[c, -s], [s, c]])
+
+            thrust_origins_body = torch.tensor([[self.body_width / 2 - 0.1, self.body_height / 2],
+                                                [-self.body_width / 2 + 0.1, self.body_height / 2]])
+            thrust_origins_world = thrust_origins_body @ R.T + torch.tensor([rx, ry])
+
+            thrust_directions_body = torch.tensor([[0, u1 / self.max_thrust], [0, u2 / self.max_thrust]])
+            thrust_directions_world = thrust_directions_body @ R.T
+
+            self.body_patch.set_xy([rx - self.body_width / 2, ry - self.body_height / 2])
+            self.body_patch.set_angle(torch.rad2deg(theta))
+
+            self.thrust_quiver.set_offsets(thrust_origins_world)
+            self.thrust_quiver.set_UVC(thrust_directions_world[:, 0], thrust_directions_world[:, 1])
 
 
 if __name__ == "__main__":

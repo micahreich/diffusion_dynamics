@@ -1,13 +1,18 @@
 import time
 from typing import Any, Callable, Tuple
 
+import matplotlib.pyplot as plt
 import numpy as np
 import torch
 from scipy.linalg import solve_continuous_are
 from tqdm import tqdm
 
 from diffusion_dynamics.simulation.animation import PlotElement, PlotEnvironment
-from diffusion_dynamics.simulation.systems import DynamicalSystem
+from diffusion_dynamics.simulation.systems import (
+    CartPole,
+    DynamicalSystem,
+    PlanarQuadrotor,
+)
 from diffusion_dynamics.utils import numpy_to_torch, torch_to_numpy
 
 
@@ -76,14 +81,9 @@ def simulate(sys: DynamicalSystem,
     return ts, x_hist.squeeze(0), u_hist.squeeze(0)
 
 
-if __name__ == "__main__":
-    import matplotlib.pyplot as plt
-
-    from diffusion_dynamics.simulation.systems import CartPole
-
-    print("Simulating 1 CartPole with LQR control")
-
+def simulate_cartpole():
     cart_pole = CartPole(params=CartPole.Params(1, 1, 1, 9.81))
+    print(f"Simulating 1 {cart_pole.name} with LQR control")
 
     # Compute LQR gain matrix K
     xbar = torch.tensor([1.0, torch.pi, 0, 0], dtype=torch.float32)
@@ -146,3 +146,86 @@ if __name__ == "__main__":
 
     assert np.allclose(x_hist, torch_to_numpy(x_hist_batch[i].squeeze(1)))
     assert np.allclose(u_hist, torch_to_numpy(u_hist_batch[i].squeeze(1)))
+
+
+def simulate_planar_quadrotor():
+    planar_quadrotor = PlanarQuadrotor(params=PlanarQuadrotor.Params(m=1.0, I=1.0, r=0.5, g=9.81))
+    print(f"Simulating 1 {planar_quadrotor.name} with LQR control")
+
+    # Compute LQR gain matrix K
+    xbar = torch.tensor([0.0, 1.0, 0.0, 0.0, 0.0, 0.0], dtype=torch.float32)
+    ubar = torch.tensor([
+        planar_quadrotor.params.m * planar_quadrotor.params.g / 2,
+        planar_quadrotor.params.m * planar_quadrotor.params.g / 2
+    ],
+                        dtype=torch.float32)
+
+    A = torch_to_numpy(torch.autograd.functional.jacobian(lambda _x: planar_quadrotor.dynamics(_x, ubar), xbar))
+    B = torch_to_numpy(torch.autograd.functional.jacobian(lambda _u: planar_quadrotor.dynamics(xbar, _u), ubar))
+    Q = np.diag([10., 10., 100., 1., 1., 1.])
+    R = np.eye(2)
+    P = solve_continuous_are(A, B, Q, R)
+
+    K = numpy_to_torch(np.linalg.inv(R) @ B.T @ P)
+
+    # Simulate quad for 5 seconds
+    x0 = torch.tensor([1.0, 2.0, 0.2, 1.0, 1.0, 1.0], dtype=torch.float32)
+
+    u = lambda t, x: ubar - K @ planar_quadrotor.project_state(x - xbar)
+    tf = 5.0
+    dt = 0.02
+
+    ts, x_hist, u_hist = torch_to_numpy(*simulate(planar_quadrotor, tf, dt, u, x0, log=True))
+
+    # Plot states and control
+    fig, ax = plt.subplots(2, 1, figsize=(10, 5))
+    ax[0].plot(ts, x_hist[:, 0], label=r"$x$", color="blue")
+    ax[0].plot(ts, x_hist[:, 1], label=r"$y$", color="red")
+    ax[0].plot(ts, x_hist[:, 2], label=r"$\theta$", color="green")
+    ax[0].plot(ts, x_hist[:, 3], label=r"$\dot{x}$", color="blue", alpha=0.4)
+    ax[0].plot(ts, x_hist[:, 4], label=r"$\dot{y}$", color="red", alpha=0.4)
+    ax[0].plot(ts, x_hist[:, 5], label=r"$\dot{\theta}$", color="green", alpha=0.4)
+
+    ax[0].set_ylabel("States")
+    ax[0].legend()
+
+    ax[1].plot(ts[:-1], u_hist[:, 0], label=r"$u_1$", color="purple")
+    ax[1].plot(ts[:-1], u_hist[:, 1], label=r"$u_2$", color="purple")
+
+    ax[1].set_ylabel("Control")
+    ax[1].legend()
+
+    plt.tight_layout()
+    plt.show()
+
+    # Render the simulation
+    fig, ax = plt.subplots(figsize=(5, 5))
+    ax.grid(True)
+    ax.set_aspect('equal')
+
+    env = PlotEnvironment(fig, ax)
+    env.add_element(PlanarQuadrotor.PlotElement(env, planar_quadrotor))
+    _ = env.render(t_range=(0.0, tf), fps=30)
+
+    plt.show()
+
+    N = 10_000
+    print(f"Simulating {N} CartPoles with LQR control...")
+
+    start = time.perf_counter()
+    x0 = torch.tile(x0, dims=(N, 1))
+    u = lambda t, x: ubar - planar_quadrotor.project_state(x - xbar) @ K.T
+
+    ts_batch, x_hist_batch, u_hist_batch = simulate_batch(planar_quadrotor, tf, dt, u, x0)
+
+    print(f"Time taken for {N} CartPoles: {time.perf_counter() - start : .3f}s", )
+
+    # Verify each trajectory is correct
+    i = torch.randint(0, N, (1, ))
+
+    assert np.allclose(u_hist, torch_to_numpy(u_hist_batch[i, :, :].squeeze()), atol=1e-6)
+    assert np.allclose(x_hist, torch_to_numpy(x_hist_batch[i, :, :].squeeze()), atol=1e-6)
+
+
+if __name__ == "__main__":
+    simulate_planar_quadrotor()
